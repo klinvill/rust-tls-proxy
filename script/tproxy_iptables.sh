@@ -2,8 +2,8 @@
 
 mark=8 # packets marked by iptables are routed according to ip rule and ip route
 entryn=9
-srcport=1234
-lstnport=1111
+ser_port=1234 # destination server port
+lst_port=1111 # proxy server listener application port
 
 # add iptable rules to mark all packets for port 1234
 
@@ -14,8 +14,8 @@ lstnport=1111
 # iptables -t nat -A PREROUTING -p tcp -j REDIRECT --to-port $lstnport
 
 # but we can do both with a TPROXY rule
-iptables -t mangle -A PREROUTING -p tcp --dport $srcport -j TPROXY \
-	--tproxy-mark $mark/$mark --on-port $lstnport
+iptables -t mangle -A PREROUTING -p tcp --dport $ser_port -j TPROXY \
+	--tproxy-mark $mark/$mark --on-port $lst_port
 
 # route packets marked with 8 to localhost according to table 9
 ip rule add fwmark $mark table $entryn

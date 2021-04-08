@@ -19,12 +19,13 @@ impl<W: Write> Client<W> {
     }
 
     pub fn compress(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        // TODO: compress buf and send output to writer
+        // TODO: compress buf and send output to writer (prepended with header record)
         unimplemented!("Compression not implemented yet");
     }
 
     pub fn decompress(&mut self, buf: &[u8]) -> std::io::Result<usize>{
-        // TODO: decompress buf and send output to writer
+        // TODO: first check header record for compression presence and type
+        // TODO: decompress buf and send output to writer (after removing header record)
         unimplemented!("Decompression not implemented yet");
     }
 }

@@ -1,64 +1,28 @@
-// From https://github.com/tokio-rs/tokio/blob/master/examples/proxy.rs
+mod compression;
 
-// How to run
-// 1) cargo run
-// 2) nc -l 8080
-// 3) nc 127.0.0.1 8081
+fn main() {
+    // General flow:
+    //  - parse command line arguments:
+    //      - run as forward or reverse proxy depending on args
+    //      - optionally compress data before encrypting (vulnerable to CRIME-style attacks)
+    //  - accept new TCP connections, handle each one in a new thread
+    //
+    //  - If forward proxy (runs for each new connection):
+    //      - Check to see if payload already includes TLS records, if so, forward the packet without modification
+    //      - Create a new TLS client session (assuming the use of rustls)
+    //      - Create a new TCP connection to the target server
+    //      - Loop until either client or server connection closes:
+    //          - If data received from client, write to server using write() and then write_tls() (assuming rustls)
+    //              - Optionally compress data before sending
+    //          - If data received from server, read the data using read_tls() and then read(), then send to client (assuming rustls)
+    //
+    //  - If reverse proxy (runs for each new connection):
+    //      - Check to see if payload includes TLS records, if not, forward the packet without modification
+    //      - Create a new TLS server session (assuming rustls)
+    //      - Create a new TCP connection to the target server
+    //      - Loop until either client or server connection closes:
+    //          - If data received from client, read the data using read_tls() and then read(), then send to server (assuming rustls)
+    //          - If data received from server, send to client using write() and then write_tls() (assuming rustls)
+    //              - Optionally compress data before sending
 
-#![warn(rust_2018_idioms)]
-
-use tokio::io;
-use tokio::io::AsyncWriteExt;
-use tokio::net::{TcpListener, TcpStream};
-
-use futures::FutureExt;
-use std::env;
-use std::error::Error;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let listen_addr = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:8081".to_string());
-    let server_addr = env::args()
-        .nth(2)
-        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
-
-    println!("Listening on: {}", listen_addr);
-    println!("Proxying to: {}", server_addr);
-
-    let listener = TcpListener::bind(listen_addr).await?;
-
-    while let Ok((inbound, _)) = listener.accept().await {
-        let transfer = transfer(inbound, server_addr.clone()).map(|r| {
-            if let Err(e) = r {
-                println!("Failed to transfer; error={}", e);
-            }
-        });
-
-        tokio::spawn(transfer);
-    }
-
-    Ok(())
-}
-
-async fn transfer(mut inbound: TcpStream, proxy_addr: String) -> Result<(), Box<dyn Error>> {
-    let mut outbound = TcpStream::connect(proxy_addr).await?;
-
-    let (mut ri, mut wi) = inbound.split();
-    let (mut ro, mut wo) = outbound.split();
-
-    let client_to_server = async {
-        io::copy(&mut ri, &mut wo).await?;
-        wo.shutdown().await
-    };
-
-    let server_to_client = async {
-        io::copy(&mut ro, &mut wi).await?;
-        wi.shutdown().await
-    };
-
-    tokio::try_join!(client_to_server, server_to_client)?;
-
-    Ok(())
 }

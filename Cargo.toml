@@ -10,6 +10,7 @@ edition = "2018"
 tokio = { version = "1.0.0", features = ["full", "tracing"] }
 tokio-util = { version = "0.6.3", features = ["full"] }
 tokio-stream = { version = "0.1" }
+flate2 = {version = "1.0.20", features = ["tokio"]}
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.2.7", default-features = false, features = ["fmt", "ansi", "env-filter", "chrono", "tracing-log"] }

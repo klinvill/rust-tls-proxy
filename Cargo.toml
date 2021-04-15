@@ -12,6 +12,8 @@ tokio-util = { version = "0.6.3", features = ["full"] }
 tokio-stream = { version = "0.1" }
 flate2 = {version = "1.0.20", features = ["tokio"]}
 
+clap = "2"
+
 tracing = "0.1"
 tracing-subscriber = { version = "0.2.7", default-features = false, features = ["fmt", "ansi", "env-filter", "chrono", "tracing-log"] }
 bytes = "1.0.0"

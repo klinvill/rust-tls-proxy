@@ -1,6 +1,54 @@
 mod compression;
+mod forward_proxy;
+mod reverse_proxy;
+
+use clap::{Arg, App, SubCommand, AppSettings};
+
+const APP_NAME : &str = "Rust TLS Proxy";
+const ABOUT_STR : &str = "Project for network systems class to build a \
+                          transport TLS proxy in Rust to encrypt \
+                          unencrypted messages";
 
 fn main() {
+    let m = App::new(APP_NAME)
+            .about(ABOUT_STR)
+            .setting(AppSettings::SubcommandRequiredElseHelp)
+            .arg(Arg::with_name("compress")
+                 .short("c")
+                 .long("compress")
+                 .help("enable compression"))
+            .arg(Arg::with_name("encrypt")
+                 .short("e")
+                 .long("encrypt")
+                 .help("enable encryption"))
+            .subcommands( vec![
+                SubCommand::with_name("forward")
+                            .about("start in foward proxy server mode")
+                            .arg(Arg::with_name("port")
+                                 .short("p")
+                                 .long("port")
+                                 .help("port number receiving intercepted client connections, default 8080")),
+                SubCommand::with_name("reverse")
+                            .about("start in reverse proxy server mode")
+                            .arg(Arg::with_name("port")
+                                 .short("p")
+                                 .long("port")
+                                 .help("port number receiving incoming connections, default 443"))
+                            .arg(Arg::with_name("SERVER")
+                                 .help("server addresses in format ip:port")
+                                 .required(true)
+                                 .multiple(true))])
+            .get_matches();
+
+    if let Some(cmd) = m.subcommand_name() {
+        match cmd {
+            "forward" => println!("forward subcommand"),
+            "reverse" => println!("reverse subcommand"),
+            _ => panic!("unknown subcommand, clap parser failure"),
+        }
+    }
+
+
     // General flow:
     //  - parse command line arguments:
     //      - run as forward or reverse proxy depending on args

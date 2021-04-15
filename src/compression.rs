@@ -1,7 +1,7 @@
 use std::io::prelude::*;
 
-mod client;
+mod compressor;
 mod header;
 mod scheme;
 
-pub type Client<W> = client::Client<W>;
+pub type Compressor<W> = compressor::Compressor<W>;

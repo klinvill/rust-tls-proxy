@@ -1,0 +1,210 @@
+use std::io::prelude::*;
+use flate2::write::{DeflateDecoder, DeflateEncoder};
+use flate2::Compression;
+use crate::compression::header::Header;
+use crate::compression::scheme::Scheme;
+
+pub struct Compressor<C: Write> {
+    encoder: C,
+    wrote_header: bool,
+}
+
+// TODO: can assume deflate for now, add other compression schemes
+impl<W: Write> Compressor<DeflateEncoder<W>> {
+    pub fn new(writer: W) -> Compressor<DeflateEncoder<W>> {
+        Compressor {
+            encoder: DeflateEncoder::new(writer, Compression::default()),
+            wrote_header: false,
+        }
+    }
+
+    pub fn compress(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        if !self.wrote_header {
+            let header = Header::new(Scheme::Deflate);
+            let header_bytes = match header.to_bytes() {
+                Some(data) => data,
+                None => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Could not convert header to bytes")),
+            };
+            self.encoder.get_mut().write_all(&header_bytes)?;
+            self.wrote_header = true;
+        }
+
+        self.encoder.write_all(buf)
+    }
+
+    pub fn finish(self) -> std::io::Result<W> {
+        self.encoder.finish()
+    }
+}
+
+impl<W: Write> Compressor<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.encoder.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.encoder.flush()
+    }
+}
+
+
+pub struct Decompressor<D: Write> {
+    decoder: D,
+    // TODO: should probably move the header check to the constructor, so that we can construct the
+    //  correct kind of decoder
+    parsed_header: bool,
+}
+
+// TODO: can assume deflate for now, add other compression schemes
+impl<W: Write> Decompressor<DeflateDecoder<W>> {
+    pub fn new(writer: W) -> Decompressor<DeflateDecoder<W>> {
+        Decompressor {
+            decoder: DeflateDecoder::new(writer),
+            parsed_header: false,
+        }
+    }
+
+    pub fn decompress(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        let compressed_bytes = match self.parsed_header {
+            // The header must be the first few bytes in the compressed buffer
+            false => {
+                match Header::from_bytes(buf) {
+                    Some(header) => {
+                        if header.scheme != Scheme::Deflate {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                "Only the deflate compression scheme is currently supported",
+                            ));
+                        }
+                        self.parsed_header = true;
+                        &buf[Header::serialized_size()..]
+                    },
+                    None => return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "A compression header must be present in the first few bytes of the buffer",
+                    )),
+                }
+            },
+            true => buf,
+        };
+
+        self.decoder.write_all(compressed_bytes)
+    }
+
+    pub fn finish(self) -> std::io::Result<W> {
+        self.decoder.finish()
+    }
+}
+
+impl<W: Write> Decompressor<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.decoder.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.decoder.flush()
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::compression::clients::{Compressor, Decompressor};
+    use flate2::write::DeflateEncoder;
+    use std::io::prelude::*;
+    use crate::compression::header::Header;
+    use crate::compression::scheme::Scheme;
+
+    # [test]
+    fn compress_once() {
+        let mut compressor = Compressor::new(Vec::new());
+        let message = "Hello world! This is quite compressed....".as_bytes();
+
+        let mut reference_enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+        reference_enc.write_all(message).unwrap();
+        let expected_header = Header::new(Scheme::Deflate);
+        let expected_compressed = reference_enc.finish().unwrap();
+        let expected_result = [expected_header.to_bytes().unwrap(), expected_compressed].concat();
+
+        compressor.compress(message).unwrap();
+        let result = compressor.finish().unwrap();
+
+        assert!(result.len() > 0);
+        assert_eq!(result, expected_result);
+    }
+
+    # [test]
+    fn compress_multiple_payloads() {
+        let mut compressor = Compressor::new(Vec::new());
+        let messages = ["Hello world!".as_bytes(), " This is quite compressed....".as_bytes()];
+
+        let mut reference_enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+        for message in messages.iter() {
+            reference_enc.write_all(message).unwrap();
+        }
+        let expected_header = Header::new(Scheme::Deflate);
+        let expected_compressed = reference_enc.finish().unwrap();
+        let expected_result = [expected_header.to_bytes().unwrap(), expected_compressed].concat();
+
+        for message in messages.iter() {
+            compressor.compress(message).unwrap();
+        }
+        let result = compressor.finish().unwrap();
+
+        assert!(result.len() > 0);
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn decompress_once() {
+        let expected_message = "Hello world! This is quite compressed....".as_bytes();
+
+        let mut reference_enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+        reference_enc.write_all(expected_message).unwrap();
+        let header = Header::new(Scheme::Deflate);
+        let compressed_data = reference_enc.finish().unwrap();
+        let compressed_payload = [header.to_bytes().unwrap(), compressed_data].concat();
+
+        let mut decompressor = Decompressor::new(Vec::new());
+        decompressor.decompress(&compressed_payload).unwrap();
+        let result = decompressor.finish().unwrap();
+
+        assert!(result.len() > 0);
+        assert_eq!(result, expected_message);
+    }
+
+    #[test]
+    fn decompress_split_payloads() {
+        let expected_message = "Hello world! This is quite compressed....".as_bytes();
+
+        let mut reference_enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+        reference_enc.write_all(expected_message).unwrap();
+        let header = Header::new(Scheme::Deflate);
+        let compressed_data = reference_enc.finish().unwrap();
+        let full_payload: Vec<u8> = [header.to_bytes().unwrap(), compressed_data].concat();
+        let payload_chunks = full_payload.split_at(full_payload.len() / 2);
+
+
+        let mut decompressor = Decompressor::new(Vec::new());
+        for payload in [payload_chunks.0, payload_chunks.1].iter() {
+            decompressor.decompress(&payload).unwrap();
+        }
+        let result = decompressor.finish().unwrap();
+
+        assert!(result.len() > 0);
+        assert_eq!(result, expected_message);
+    }
+
+    #[test]
+    fn decompress_requires_header() {
+        let message = "Hello world! This is quite compressed....".as_bytes();
+
+        let mut reference_enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+        reference_enc.write_all(message).unwrap();
+        let compressed_data = reference_enc.finish().unwrap();
+
+        let mut decompressor = Decompressor::new(Vec::new());
+        let decompress_result = decompressor.decompress(&compressed_data);
+        assert_eq!(decompress_result.unwrap_err().kind(), std::io::ErrorKind::Other);
+    }
+}

@@ -26,7 +26,7 @@ impl Header {
         return Some([&self.magic.to_be_bytes(), self.scheme.to_bytes()?.as_slice()].concat());
     }
 
-    fn from_bytes(buf: &[u8]) -> Option<Header> {
+    pub fn from_bytes(buf: &[u8]) -> Option<Header> {
         let magic_bytes = HEADER_MAGIC_VALUE.to_be_bytes();
         if buf[..magic_bytes.len()] != magic_bytes {
             return None;
@@ -34,6 +34,13 @@ impl Header {
 
         let scheme = Scheme::from_bytes(&buf[magic_bytes.len()..])?;
         Some(Header::new(scheme))
+    }
+
+    /// Size in bytes when serialized
+    pub fn serialized_size() -> usize {
+        // TODO: connect size to size of serialized HEADER_MAGIC_VALUE. Shouldn't require converting
+        //  it to bytes first.
+        2 + Scheme::serialized_size()
     }
 }
 

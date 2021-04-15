@@ -21,6 +21,13 @@ impl Scheme {
             _ => Scheme::from_u8(buffer[0]),
         }
     }
+
+    /// Size in bytes when serialized
+    pub fn serialized_size() -> usize {
+        // TODO: connect size to size of serialized Scheme. Shouldn't require converting
+        //  it to bytes first.
+        1
+    }
 }
 
 

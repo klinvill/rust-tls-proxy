@@ -28,12 +28,12 @@ impl Header {
 
     fn from_bytes(buf: &[u8]) -> Option<Header> {
         let magic_bytes = HEADER_MAGIC_VALUE.to_be_bytes();
-        if (buf[..magic_bytes.len()] != magic_bytes) {
+        if buf[..magic_bytes.len()] != magic_bytes {
             return None;
         }
 
         let scheme = Scheme::from_bytes(&buf[magic_bytes.len()..])?;
-        return Some(Header::new(scheme));
+        Some(Header::new(scheme))
     }
 }
 
@@ -45,7 +45,7 @@ mod tests {
 
     #[test]
     fn header_to_bytes() {
-        let scheme = Scheme::DEFLATE;
+        let scheme = Scheme::Deflate;
         let scheme_bytes = match scheme.to_bytes() {
             Some(data) => data,
             None => panic!("Could not convert scheme to bytes"),
@@ -57,7 +57,7 @@ mod tests {
 
     #[test]
     fn header_from_bytes() {
-        let scheme = Scheme::DEFLATE;
+        let scheme = Scheme::Deflate;
         let scheme_bytes = match scheme.to_bytes() {
             Some(data) => data,
             None => panic!("Could not convert scheme to bytes"),

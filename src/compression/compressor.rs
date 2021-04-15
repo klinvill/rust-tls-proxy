@@ -20,7 +20,7 @@ impl<W: Write> Compressor<DeflateEncoder<W>> {
 
     pub fn compress(&mut self, buf: &[u8]) -> std::io::Result<()> {
         if !self.wrote_header {
-            let header = Header::new(Scheme::DEFLATE);
+            let header = Header::new(Scheme::Deflate);
             let header_bytes = match header.to_bytes() {
                 Some(data) => data,
                 None => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Could not convert header to bytes")),
@@ -65,11 +65,11 @@ mod tests {
 
         let mut reference_enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
         reference_enc.write_all(message).unwrap();
-        let expected_header = Header::new(Scheme::DEFLATE);
+        let expected_header = Header::new(Scheme::Deflate);
         let expected_compressed = reference_enc.finish().unwrap();
         let expected_result = [expected_header.to_bytes().unwrap(), expected_compressed].concat();
 
-        compressor.compress(message);
+        compressor.compress(message).unwrap();
         let result = compressor.finish().unwrap();
 
         assert!(result.len() > 0);
@@ -85,12 +85,12 @@ mod tests {
         for message in messages.iter() {
             reference_enc.write_all(message).unwrap();
         }
-        let expected_header = Header::new(Scheme::DEFLATE);
+        let expected_header = Header::new(Scheme::Deflate);
         let expected_compressed = reference_enc.finish().unwrap();
         let expected_result = [expected_header.to_bytes().unwrap(), expected_compressed].concat();
 
         for message in messages.iter() {
-            compressor.compress(message);
+            compressor.compress(message).unwrap();
         }
         let result = compressor.finish().unwrap();
 

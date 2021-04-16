@@ -25,49 +25,61 @@
 mod forward_proxy;
 mod reverse_proxy;
 
+use error_chain::bail;
+mod errors {
+    error_chain::error_chain! {}
+}
+use errors::*;
+
 use clap::{Arg, App, SubCommand, AppSettings};
-use std::error::Error;
 use std::net::{TcpListener, IpAddr, SocketAddr};
 
 enum Server {
-    Forward { port: u16 },
-    Reverse { port: u16, server_ips: Vec<SocketAddr> },
+    Forward { 
+        port: u16 
+    },
+    Reverse { 
+        port: u16, 
+        server_ips: Vec<SocketAddr> 
+    },
 }
 
 const APP_NAME : &str = "Rust TLS Proxy";
-const ABOUT_STR : &str =
-    "Project for network systems class to build a transport TLS proxy in Rust \
-    to encrypt unencrypted messages";
+const ABOUT_STR : &str = "Project for network systems class to build a \
+    transport TLS proxy in Rust to encrypt unencrypted messages";
 
 const FORWARD_PORT_HELP : &str = const_format::formatcp!(
     "port number receiving intercepted client connections, default {}", 
-    forward_proxy::DEFAULT_PORT);
+    forward_proxy::DEFAULT_PORT
+);
 
 const REVERSE_PORT_HELP : &str = const_format::formatcp!(
     "port number receiving incoming connections, default {}",
-    reverse_proxy::DEFAULT_PORT);
+    reverse_proxy::DEFAULT_PORT
+);
 
-fn run() -> Result<(), Box<Error>> {
+fn run() -> Result<()> {
     let m = App::new(APP_NAME)
-            .about(ABOUT_STR)
-            .setting(AppSettings::SubcommandRequiredElseHelp)
-            .arg(Arg::with_name("compress")
-                 .short("c")
-                 .long("compress")
-                 .help("enable compression"))
-            .arg(Arg::with_name("encrypt")
-                 .short("e")
-                 .long("encrypt")
-                 .help("enable encryption"))
-            .subcommands( vec![
-                SubCommand::with_name("forward")
+        .about(ABOUT_STR)
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .arg(Arg::with_name("compress")
+             .short("c")
+             .long("compress")
+             .help("enable compression"))
+        .arg(Arg::with_name("encrypt")
+             .short("e")
+             .long("encrypt")
+             .help("enable encryption"))
+        .subcommands( vec![ 
+            SubCommand::with_name("forward")
                 .about("start in foward proxy server mode")
                 .arg(Arg::with_name("port")
                      .short("p")
                      .long("port")
                      .help(FORWARD_PORT_HELP)
                      .takes_value(true)),
-                SubCommand::with_name("reverse")
+
+            SubCommand::with_name("reverse")
                 .about("start in reverse proxy server mode")
                 .arg(Arg::with_name("port")
                      .short("p")
@@ -77,42 +89,76 @@ fn run() -> Result<(), Box<Error>> {
                 .arg(Arg::with_name("SERVERS")
                      .help("server addresses in format ip:port")
                      .required(true)
-                     .multiple(true))])
-            .get_matches_safe()?;
+                     .multiple(true))
+        ])
+        .get_matches_safe()
+        .chain_err(|| "error parsing arguments")?;
 
     let compress = m.is_present("compress");
+
     let encrypt = m.is_present("encrypt");
+    
     let server = match m.subcommand() {
         ("forward", Some(sub_m)) => Server::Forward {
             port: match sub_m.value_of("port") {
-                Some(p) => p.parse()?,
+                Some(p) => p.parse()
+                    .chain_err(
+                        || format!("error parsing port number \"{}\"", p)
+                    )?,
                 None => forward_proxy::DEFAULT_PORT,
             },
         },
         ("reverse", Some(sub_m)) => Server::Reverse {
             port: match sub_m.value_of("port") {
-                Some(p) => p.parse()?,
+                Some(p) => p.parse()
+                    .chain_err(
+                        || format!("error parsing port number \"{}\"", p)
+                    )?,
                 None => reverse_proxy::DEFAULT_PORT,
             },
             server_ips: match sub_m.values_of("SERVERS") {
-                Some(addrs) => addrs.map(|a| a.parse::<SocketAddr>()) 
-                    .collect::<Result<Vec<_>, _>>()?,
-                None => return Err("no server addreses".into()),
+                Some(addrs) => addrs.map(
+                    |a| a.parse::<SocketAddr>()
+                        .chain_err(
+                            || format!("error parsing socket address \"{}\"", a)
+                        )
+                    ) 
+                    .collect::<Result<Vec<_>>>()?,
+                None => bail!("no server addreses"),
             },
         },
-        _ => return Err("unknown subcommand".into()),
+        _ => bail!("unknown subcommand"),
     };
 
-    let local_ip = "127.0.0.1".parse::<IpAddr>()?;
-    let local_addr = SocketAddr::new(local_ip, match server {
-        Server::Forward{port} => port,
-        Server::Reverse{port, ..} => port,
-    });
-    let listen_socket = TcpListener::bind(&local_addr)?;
+    let local_ip = "127.0.0.1"
+        .parse::<IpAddr>()
+        .chain_err(|| "error parsing 127.0.0.1")?;
+
+    let local_addr = SocketAddr::new(
+        local_ip, 
+        match server {
+            Server::Forward{port} => port,
+            Server::Reverse{port, ..} => port,
+        }
+    );
+
+    let listen_socket = TcpListener::bind(&local_addr)
+        .chain_err(|| "error binding to local address")?;
 
     match server {
-        Server::Forward{..} => forward_proxy::run(listen_socket, compress, encrypt)?,
-        Server::Reverse{server_ips, ..} => reverse_proxy::run(listen_socket, server_ips, compress, encrypt)?,
+        Server::Forward{..} => forward_proxy::run(
+                listen_socket, 
+                compress, 
+                encrypt
+            )
+            .chain_err(|| "error in forward_proxy::run()")?,
+        Server::Reverse{server_ips, ..} => reverse_proxy::run(
+                listen_socket, 
+                server_ips, 
+                compress, 
+                encrypt
+            )
+            .chain_err(|| "error in reverse_proxy::run()")?,
     }
 
     return Ok(())
@@ -121,6 +167,11 @@ fn run() -> Result<(), Box<Error>> {
 fn main() {
     if let Err(e) = run() {
         eprintln!("{}", e);
+
+        for e in e.iter().skip(1) {
+            eprintln!("caused by: {}", e);
+        }
+
         std::process::exit(1);
     }
 }

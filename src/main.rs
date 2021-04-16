@@ -28,13 +28,12 @@ mod reverse_proxy;
 
 use clap::{Arg, App, SubCommand, AppSettings};
 use const_format::formatcp;
-use std::io;
-use std::net::{TcpListener, Ipv4Addr, SocketAddrV4, Shutdown};
-use std::process;
+use std::error::Error;
+use std::net::{TcpListener, Ipv4Addr, SocketAddrV4};
 
-enum ServerType {
-    Forward,
-    Reverse,
+enum Server {
+    Forward { port: u16 },
+    Reverse { port: u16, server_ips: Vec<SocketAddrV4> },
 }
 
 const APP_NAME : &str = "Rust TLS Proxy";
@@ -50,7 +49,7 @@ const REVERSE_PORT_HELP : &str = formatcp!(
     "port number receiving incoming connections, default {}",
     reverse_proxy::DEFAULT_PORT);
 
-fn main() {
+fn run() -> Result<(), Box<Error>> {
     let m = App::new(APP_NAME)
             .about(ABOUT_STR)
             .setting(AppSettings::SubcommandRequiredElseHelp)
@@ -81,88 +80,49 @@ fn main() {
                      .help("server addresses in format ip:port")
                      .required(true)
                      .multiple(true))])
-            .get_matches_safe();
-
-    let m = match m {
-        Ok(args) => args,
-        Err(e) => {
-            eprintln!("{}", e);
-            process::exit(exitcode::USAGE);
-        }
-    };
+            .get_matches_safe()?;
 
     let compress = m.is_present("compress");
     let encrypt = m.is_present("encrypt");
-    let server = match m.subcommand_name() {
-        Some("forward") => ServerType::Forward,
-        Some("reverse") => ServerType::Reverse,
-        Some(n) => {
-            eprintln!("unknown subcommand \"{}\"", n);
-            process::exit(exitcode::USAGE);
-        },
-        None => {
-            eprintln!("\"forward\" or \"reverse\" subcommand needed");
-            process::exit(exitcode::USAGE);
-        },
-    };
-    let port = match m.subcommand() {
-        (_, Some(sub_m)) => match sub_m.value_of("port") {
-            Some(p) => p.parse().unwrap_or_else(|e| {
-                eprintln!("error parsing port \"{}\": {}", p, e);
-                process::exit(exitcode::DATAERR);
-            }),
-            None => match server {
-                ServerType::Forward => forward_proxy::DEFAULT_PORT, 
-                ServerType::Reverse => reverse_proxy::DEFAULT_PORT, 
+    let server = match m.subcommand() {
+        ("forward", Some(sub_m)) => Server::Forward {
+            port: match sub_m.value_of("port") {
+                Some(p) => p.parse()?,
+                None => forward_proxy::DEFAULT_PORT,
             },
         },
-        _ => {
-            eprintln!("socket port number needed");
-            process::exit(exitcode::USAGE);
-        }
+        ("reverse", Some(sub_m)) => Server::Reverse {
+            port: match sub_m.value_of("port") {
+                Some(p) => p.parse()?,
+                None => reverse_proxy::DEFAULT_PORT,
+            },
+            server_ips: match sub_m.values_of("SERVERS") {
+                Some(addrs) => addrs.map(|a| a.parse::<SocketAddrV4>()) 
+                    .collect::<Result<Vec<_>, _>>()?,
+                None => return Err("no server addreses".into()),
+            },
+        },
+        _ => return Err("unknown subcommand".into()),
     };
-    let server_ips: Option<Vec<SocketAddrV4>> = match m.subcommand() {
-        ("reverse", Some(sub_m)) => Some(sub_m.values_of("SERVERS")
-            .unwrap_or_else(|| {
-                eprintln!("reverse proxy needs at least one server ip address");
-                process::exit(exitcode::USAGE);
-            })
-            .map(|s| s.parse::<SocketAddrV4>().unwrap_or_else(|e| {
-                eprintln!("Error parsing ip address from \"{}\": {}", s, e);
-                process::exit(exitcode::DATAERR);
-            }))
-            .collect()),
-        _ => None,
-    };
-    let listen_socket = open_listen_socket(port)
-        .unwrap_or_else(|e| {
-        eprintln!("failed to open socket on port {}: {}", port, e);
-        process::exit(exitcode::OSERR);
+
+    let local_ip = "127.0.0.1".parse::<Ipv4Addr>()?;
+    let local_addr = SocketAddrV4::new(local_ip, match server {
+        Server::Forward{port} => port,
+        Server::Reverse{port, ..} => port,
     });
+    let listen_socket = TcpListener::bind(local_addr)?;
 
     match server {
-        ServerType::Forward => forward_proxy::run(listen_socket, compress, encrypt)
-            .unwrap_or_else(|e| {
-                eprintln!("error in forward_proxy::run(): {}", e);
-                process::exit(exitcode::OSERR);
-            }),
-        ServerType::Reverse => {
-            let server_ips = server_ips.unwrap_or_else(|| {
-                eprintln!("no server ip addresses");
-                process::exit(exitcode::USAGE);
-            });
-            reverse_proxy::run(listen_socket, server_ips, compress, encrypt)
-                .unwrap_or_else(|e| {
-                    eprintln!("error in forward_proxy::run(): {}", e);
-                    process::exit(exitcode::OSERR);
-                });
-        },
+        Server::Forward{..} => forward_proxy::run(listen_socket, compress, encrypt)?,
+        Server::Reverse{server_ips, ..} => reverse_proxy::run(listen_socket, server_ips, compress, encrypt)?,
     }
 
-    process::exit(exitcode::OK);
+    return Ok(())
 }
 
-fn open_listen_socket(port : u16) -> io::Result<TcpListener> {
-    let socket = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port);
-    TcpListener::bind(socket)
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("{}", e);
+        std::process::exit(1);
+    }
 }

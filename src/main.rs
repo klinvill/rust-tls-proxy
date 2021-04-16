@@ -22,18 +22,16 @@
 //          - If data received from server, send to client using write() and then write_tls() (assuming rustls)
 //              - Optionally compress data before sending
 
-mod compression;
 mod forward_proxy;
 mod reverse_proxy;
 
 use clap::{Arg, App, SubCommand, AppSettings};
-use const_format::formatcp;
 use std::error::Error;
-use std::net::{TcpListener, Ipv4Addr, SocketAddrV4};
+use std::net::{TcpListener, IpAddr, SocketAddr};
 
 enum Server {
     Forward { port: u16 },
-    Reverse { port: u16, server_ips: Vec<SocketAddrV4> },
+    Reverse { port: u16, server_ips: Vec<SocketAddr> },
 }
 
 const APP_NAME : &str = "Rust TLS Proxy";
@@ -41,11 +39,11 @@ const ABOUT_STR : &str =
     "Project for network systems class to build a transport TLS proxy in Rust \
     to encrypt unencrypted messages";
 
-const FORWARD_PORT_HELP : &str = formatcp!(
+const FORWARD_PORT_HELP : &str = const_format::formatcp!(
     "port number receiving intercepted client connections, default {}", 
     forward_proxy::DEFAULT_PORT);
 
-const REVERSE_PORT_HELP : &str = formatcp!(
+const REVERSE_PORT_HELP : &str = const_format::formatcp!(
     "port number receiving incoming connections, default {}",
     reverse_proxy::DEFAULT_PORT);
 
@@ -97,7 +95,7 @@ fn run() -> Result<(), Box<Error>> {
                 None => reverse_proxy::DEFAULT_PORT,
             },
             server_ips: match sub_m.values_of("SERVERS") {
-                Some(addrs) => addrs.map(|a| a.parse::<SocketAddrV4>()) 
+                Some(addrs) => addrs.map(|a| a.parse::<SocketAddr>()) 
                     .collect::<Result<Vec<_>, _>>()?,
                 None => return Err("no server addreses".into()),
             },
@@ -105,12 +103,12 @@ fn run() -> Result<(), Box<Error>> {
         _ => return Err("unknown subcommand".into()),
     };
 
-    let local_ip = "127.0.0.1".parse::<Ipv4Addr>()?;
-    let local_addr = SocketAddrV4::new(local_ip, match server {
+    let local_ip = "127.0.0.1".parse::<IpAddr>()?;
+    let local_addr = SocketAddr::new(local_ip, match server {
         Server::Forward{port} => port,
         Server::Reverse{port, ..} => port,
     });
-    let listen_socket = TcpListener::bind(local_addr)?;
+    let listen_socket = TcpListener::bind(&local_addr)?;
 
     match server {
         Server::Forward{..} => forward_proxy::run(listen_socket, compress, encrypt)?,

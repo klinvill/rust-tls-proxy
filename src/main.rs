@@ -26,21 +26,22 @@ mod forward_proxy;
 mod reverse_proxy;
 
 use error_chain::bail;
+use error_chain::ChainedError;
 mod errors {
     error_chain::error_chain! {}
 }
 use errors::*;
 
 use clap::{Arg, App, SubCommand, AppSettings};
-use std::net::{TcpListener, IpAddr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 
-enum Server {
+enum ServerSettings {
     Forward { 
-        port: u16 
+        addr: SocketAddr,
     },
     Reverse { 
-        port: u16, 
-        server_ips: Vec<SocketAddr> 
+        addr: SocketAddr,
+        server_ips: Vec<SocketAddr>,
     },
 }
 
@@ -99,23 +100,33 @@ fn run() -> Result<()> {
     let encrypt = m.is_present("encrypt");
     
     let server = match m.subcommand() {
-        ("forward", Some(sub_m)) => Server::Forward {
-            port: match sub_m.value_of("port") {
-                Some(p) => p.parse()
-                    .chain_err(
-                        || format!("error parsing port number \"{}\"", p)
-                    )?,
-                None => forward_proxy::DEFAULT_PORT,
+        ("forward", Some(sub_m)) => ServerSettings::Forward {
+            addr: {
+                let port = match sub_m.value_of("port") {
+                    Some(p) => p.parse()
+                        .chain_err(
+                            || format!("error parsing port number \"{}\"", p)
+                        )?,
+                    None => forward_proxy::DEFAULT_PORT,
+                };
+
+                SocketAddr::from((IpAddr::from([0, 0, 0, 0]), port))
             },
         },
-        ("reverse", Some(sub_m)) => Server::Reverse {
-            port: match sub_m.value_of("port") {
-                Some(p) => p.parse()
-                    .chain_err(
-                        || format!("error parsing port number \"{}\"", p)
-                    )?,
-                None => reverse_proxy::DEFAULT_PORT,
+
+        ("reverse", Some(sub_m)) => ServerSettings::Reverse {
+            addr: {
+                let port = match sub_m.value_of("port") {
+                    Some(p) => p.parse()
+                        .chain_err(
+                            || format!("error parsing port number \"{}\"", p)
+                        )?,
+                    None => forward_proxy::DEFAULT_PORT,
+                };
+
+                SocketAddr::from((IpAddr::from([0, 0, 0, 0]), port))
             },
+
             server_ips: match sub_m.values_of("SERVERS") {
                 Some(addrs) => addrs.map(
                     |a| a.parse::<SocketAddr>()
@@ -123,55 +134,35 @@ fn run() -> Result<()> {
                             || format!("error parsing socket address \"{}\"", a)
                         )
                     ) 
-                    .collect::<Result<Vec<_>>>()?,
+                    .collect::<Result<_>>()?,
                 None => bail!("no server addreses"),
             },
         },
+
         _ => bail!("unknown subcommand"),
     };
 
-    let local_ip = "127.0.0.1"
-        .parse::<IpAddr>()
-        .chain_err(|| "error parsing 127.0.0.1")?;
+    return match server {
+        ServerSettings::Forward{addr} => forward_proxy::run(
+            addr, 
+            compress, 
+            encrypt
+        )
+        .chain_err(|| "error in forward_proxy::run()"),
 
-    let local_addr = SocketAddr::new(
-        local_ip, 
-        match server {
-            Server::Forward{port} => port,
-            Server::Reverse{port, ..} => port,
-        }
-    );
-
-    let listen_socket = TcpListener::bind(&local_addr)
-        .chain_err(|| "error binding to local address")?;
-
-    match server {
-        Server::Forward{..} => forward_proxy::run(
-                listen_socket, 
-                compress, 
-                encrypt
-            )
-            .chain_err(|| "error in forward_proxy::run()")?,
-        Server::Reverse{server_ips, ..} => reverse_proxy::run(
-                listen_socket, 
-                server_ips, 
-                compress, 
-                encrypt
-            )
-            .chain_err(|| "error in reverse_proxy::run()")?,
+        ServerSettings::Reverse{addr, server_ips} => reverse_proxy::run(
+            addr,
+            server_ips, 
+            compress, 
+            encrypt
+        )
+        .chain_err(|| "error in reverse_proxy::run()"),
     }
-
-    return Ok(())
 }
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("{}", e);
-
-        for e in e.iter().skip(1) {
-            eprintln!("caused by: {}", e);
-        }
-
+        eprintln!("{}", e.display_chain().to_string());
         std::process::exit(1);
     }
 }

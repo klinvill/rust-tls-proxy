@@ -1,7 +1,7 @@
 import socket
 import sys
 
-ser_port = 1234
+ser_port = 9443 # server-router using 9443 instead of 443 to avoid sudo during test
 
 def client(ip):
     server_address = (ip, ser_port)
@@ -19,7 +19,14 @@ def client(ip):
         while True:
             in_str = input(">>")
             sock.sendall(in_str.encode('utf-8'))
-            print(sock.recv(16).decode('utf-8'))
+            recv_str = sock.recv(16).decode('utf-8')
+
+            if not recv_str:
+                print("server closed connection")
+                return
+            else:
+                print(recv_str)
+
     except KeyboardInterrupt:
         print('stopping client')
     finally:
@@ -27,7 +34,7 @@ def client(ip):
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
-        ip = "172.40.17.10"
+        ip = "172.40.17.19" # server-router external-facing ip
     else:
         ip = sys.argv[1]
 

@@ -121,7 +121,7 @@ fn run() -> Result<()> {
                         .chain_err(
                             || format!("error parsing port number \"{}\"", p)
                         )?,
-                    None => forward_proxy::DEFAULT_PORT,
+                    None => reverse_proxy::DEFAULT_PORT,
                 };
 
                 SocketAddr::from((IpAddr::from([0, 0, 0, 0]), port))

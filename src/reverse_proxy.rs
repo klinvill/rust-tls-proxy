@@ -1,9 +1,10 @@
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, Shutdown};
 use crate::errors::*;
 
-pub const DEFAULT_PORT : u16 = 443;
+// using 9443 instead of 443 for https to avoid running with sudo during test
+pub const DEFAULT_PORT : u16 = 9443; 
 
 pub fn run(
     local_addr: SocketAddr, 
@@ -18,17 +19,19 @@ pub fn run(
     rt.block_on(async {
         let mut server_carousel = server_ips.iter().cycle();
 
+        println!("opening listener socket on {}", local_addr);
+
         let listen_socket = TcpListener::bind(local_addr).await
             .chain_err(|| 
                 format!("error opening listener socket on {}", local_addr)
             )?;
 
         loop {
-            let (from_conn, from_addr) = listen_socket.accept().await
+            let (mut from_conn, from_addr) = listen_socket.accept().await
                 .chain_err(|| 
                     format!("error accepting connection")
                 )?;
-            println!("Connection received from {}", from_addr);
+            println!("connection received from {}", from_addr);
 
             let to_addr = server_carousel.next()
                 .chain_err(|| "server carousel failed to provide server addr")?
@@ -36,10 +39,11 @@ pub fn run(
 
             tokio::spawn(async move {
                 if let Ok(to_conn) = TcpStream::connect(to_addr).await {
+                    println!("connection opened to {}", to_addr);
                     server(from_conn, to_conn, compress, encrypt).await;
                 }
                 else {
-                    eprintln!("Failed to connect to {}", to_addr);
+                    eprintln!("failed to connect to {}", to_addr);
                 }
             });
         }
@@ -56,20 +60,39 @@ async fn server(
     let mut buf = vec![0; 1024];
 
     loop {
+        // echo client to server
         match from_conn.read(&mut buf).await {
             Ok(0) => {
                 println!("Client closed connection");
-                return;
+                break;
             }
             Ok(n) => {
                 if let Err(_) = to_conn.write_all(&buf[..n]).await {
                     eprintln!("Error sending to server");
-                    return;
+                    break;
                 }
             }
             Err(_) => {
                 eprintln!("Socket error");
-                return;
+                break;
+            }
+        }
+
+        // echo server to client
+        match to_conn.read(&mut buf).await {
+            Ok(0) => {
+                println!("Server closed connection");
+                break;
+            }
+            Ok(n) => {
+                if let Err(_) = from_conn.write_all(&buf[..n]).await {
+                    eprintln!("Error sending to client");
+                    break;
+                }
+            }
+            Err(_) => {
+                eprintln!("Socket error");
+                break;
             }
         }
     }

@@ -1,8 +1,8 @@
-use std::io::prelude::*;
-use flate2::write::{DeflateDecoder, DeflateEncoder};
-use flate2::Compression;
 use crate::compression::header::Header;
 use crate::compression::scheme::Scheme;
+use flate2::write::{DeflateDecoder, DeflateEncoder};
+use flate2::Compression;
+use std::io::prelude::*;
 
 pub struct Compressor<C: Write> {
     encoder: C,
@@ -20,13 +20,21 @@ impl<W: Write> Compressor<DeflateEncoder<W>> {
 
     fn write_header(&mut self) -> std::io::Result<usize> {
         if self.wrote_header {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Header already written"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Header already written",
+            ));
         }
 
         let header = Header::new(Scheme::Deflate);
         let header_bytes = match header.to_bytes() {
             Some(data) => data,
-            None => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Could not convert header to bytes")),
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Could not convert header to bytes",
+                ))
+            }
         };
         // We need to write the header to the underlying writer so the header is not compressed
         let result = self.encoder.get_mut().write(&header_bytes);
@@ -43,7 +51,12 @@ impl<W: Write> Compressor<DeflateEncoder<W>> {
             let header = Header::new(Scheme::Deflate);
             let header_bytes = match header.to_bytes() {
                 Some(data) => data,
-                None => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Could not convert header to bytes")),
+                None => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Could not convert header to bytes",
+                    ))
+                }
             };
             // We need to write the header to the underlying writer so the header is not compressed
             self.encoder.get_mut().write_all(&header_bytes)?;
@@ -82,7 +95,6 @@ impl<W: Write> Write for Compressor<DeflateEncoder<W>> {
     }
 }
 
-
 pub struct Decompressor<D: Write> {
     decoder: D,
     // TODO: should probably move the header check to the constructor, so that we can construct the
@@ -100,10 +112,10 @@ impl<W: Write> Decompressor<DeflateDecoder<W>> {
     }
 
     pub fn decompress(&mut self, buf: &[u8]) -> std::io::Result<()> {
-        let compressed_bytes = match self.parsed_header {
-            // The header must be the first few bytes in the compressed buffer
-            false => {
-                match Header::from_bytes(buf) {
+        let compressed_bytes =
+            match self.parsed_header {
+                // The header must be the first few bytes in the compressed buffer
+                false => match Header::from_bytes(buf) {
                     Some(header) => {
                         if header.scheme != Scheme::Deflate {
                             return Err(std::io::Error::new(
@@ -113,15 +125,14 @@ impl<W: Write> Decompressor<DeflateDecoder<W>> {
                         }
                         self.parsed_header = true;
                         &buf[Header::serialized_size()..]
-                    },
+                    }
                     None => return Err(std::io::Error::new(
                         std::io::ErrorKind::Other,
                         "A compression header must be present in the first few bytes of the buffer",
                     )),
-                }
-            },
-            true => buf,
-        };
+                },
+                true => buf,
+            };
 
         self.decoder.write_all(compressed_bytes)
     }
@@ -141,17 +152,16 @@ impl<W: Write> Decompressor<W> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::compression::clients::{Compressor, Decompressor};
-    use flate2::write::{DeflateEncoder, DeflateDecoder};
-    use std::io::prelude::*;
-    use std::io::BufWriter;
     use crate::compression::header::Header;
     use crate::compression::scheme::Scheme;
+    use flate2::write::{DeflateDecoder, DeflateEncoder};
+    use std::io::prelude::*;
+    use std::io::BufWriter;
 
-    # [test]
+    #[test]
     fn compress_once() {
         let mut compressor = Compressor::new(Vec::new());
         let message = "Hello world! This is quite compressed....".as_bytes();
@@ -169,10 +179,13 @@ mod tests {
         assert_eq!(result, expected_result);
     }
 
-    # [test]
+    #[test]
     fn compress_multiple_payloads() {
         let mut compressor = Compressor::new(Vec::new());
-        let messages = ["Hello world!".as_bytes(), " This is quite compressed....".as_bytes()];
+        let messages = [
+            "Hello world!".as_bytes(),
+            " This is quite compressed....".as_bytes(),
+        ];
 
         let mut reference_enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
         for message in messages.iter() {
@@ -191,7 +204,7 @@ mod tests {
         assert_eq!(result, expected_result);
     }
 
-    # [test]
+    #[test]
     fn can_wrap_compressor_write() {
         let compressor = Compressor::new(Vec::new());
         let mut writer = BufWriter::new(compressor);
@@ -246,7 +259,6 @@ mod tests {
         let full_payload: Vec<u8> = [header.to_bytes().unwrap(), compressed_data].concat();
         let payload_chunks = full_payload.split_at(full_payload.len() / 2);
 
-
         let mut decompressor = Decompressor::new(Vec::new());
         for payload in [payload_chunks.0, payload_chunks.1].iter() {
             decompressor.decompress(&payload).unwrap();
@@ -267,6 +279,9 @@ mod tests {
 
         let mut decompressor = Decompressor::new(Vec::new());
         let decompress_result = decompressor.decompress(&compressed_data);
-        assert_eq!(decompress_result.unwrap_err().kind(), std::io::ErrorKind::Other);
+        assert_eq!(
+            decompress_result.unwrap_err().kind(),
+            std::io::ErrorKind::Other
+        );
     }
 }

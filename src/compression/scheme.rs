@@ -30,7 +30,6 @@ impl Scheme {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::compression::scheme::Scheme;

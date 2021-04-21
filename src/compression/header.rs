@@ -16,14 +16,20 @@ const HEADER_MAGIC_VALUE: u16 = 0xbeef;
 
 impl Header {
     pub fn new(scheme: Scheme) -> Header {
-       Header {
-           magic: HEADER_MAGIC_VALUE,
-           scheme,
-       }
+        Header {
+            magic: HEADER_MAGIC_VALUE,
+            scheme,
+        }
     }
 
     pub fn to_bytes(&self) -> Option<Vec<u8>> {
-        return Some([&self.magic.to_be_bytes(), self.scheme.to_bytes()?.as_slice()].concat());
+        return Some(
+            [
+                &self.magic.to_be_bytes(),
+                self.scheme.to_bytes()?.as_slice(),
+            ]
+            .concat(),
+        );
     }
 
     pub fn from_bytes(buf: &[u8]) -> Option<Header> {
@@ -44,7 +50,6 @@ impl Header {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::compression::header::{Header, HEADER_MAGIC_VALUE};
@@ -57,7 +62,7 @@ mod tests {
             Some(data) => data,
             None => panic!("Could not convert scheme to bytes"),
         };
-        let magic_bytes= &HEADER_MAGIC_VALUE.to_be_bytes();
+        let magic_bytes = &HEADER_MAGIC_VALUE.to_be_bytes();
         let expected_result: Vec<u8> = [magic_bytes, scheme_bytes.as_slice()].concat();
         assert_eq!(Header::new(scheme).to_bytes(), Some(expected_result));
     }
@@ -69,7 +74,7 @@ mod tests {
             Some(data) => data,
             None => panic!("Could not convert scheme to bytes"),
         };
-        let magic_bytes= &HEADER_MAGIC_VALUE.to_be_bytes();
+        let magic_bytes = &HEADER_MAGIC_VALUE.to_be_bytes();
         let bytes: Vec<u8> = [magic_bytes, scheme_bytes.as_slice()].concat();
         let expected_header = Header::new(scheme);
         assert_eq!(Header::from_bytes(&bytes), Some(expected_header));

@@ -18,6 +18,26 @@ impl<W: Write> Compressor<DeflateEncoder<W>> {
         }
     }
 
+    fn write_header(&mut self) -> std::io::Result<usize> {
+        if self.wrote_header {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Header already written"));
+        }
+
+        let header = Header::new(Scheme::Deflate);
+        let header_bytes = match header.to_bytes() {
+            Some(data) => data,
+            None => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Could not convert header to bytes")),
+        };
+        // We need to write the header to the underlying writer so the header is not compressed
+        let result = self.encoder.get_mut().write(&header_bytes);
+
+        if result.is_ok() {
+            self.wrote_header = true;
+        }
+
+        result
+    }
+
     pub fn compress(&mut self, buf: &[u8]) -> std::io::Result<()> {
         if !self.wrote_header {
             let header = Header::new(Scheme::Deflate);
@@ -25,6 +45,7 @@ impl<W: Write> Compressor<DeflateEncoder<W>> {
                 Some(data) => data,
                 None => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Could not convert header to bytes")),
             };
+            // We need to write the header to the underlying writer so the header is not compressed
             self.encoder.get_mut().write_all(&header_bytes)?;
             self.wrote_header = true;
         }
@@ -35,10 +56,24 @@ impl<W: Write> Compressor<DeflateEncoder<W>> {
     pub fn finish(self) -> std::io::Result<W> {
         self.encoder.finish()
     }
+
+    pub fn get_ref(&self) -> &W {
+        self.encoder.get_ref()
+    }
+
+    pub fn get_mut(&mut self) -> &mut W {
+        self.encoder.get_mut()
+    }
 }
 
-impl<W: Write> Compressor<W> {
+impl<W: Write> Write for Compressor<DeflateEncoder<W>> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        // We only return the number of bytes written from the input buffer. This is how flate2's
+        // write() works: https://github.com/rust-lang/flate2-rs/blob/7546110602fcc934ae506ed8d5cd9516e945d1ee/src/zio.rs#L218
+        if !self.wrote_header {
+            self.write_header()?;
+        }
+
         self.encoder.write(buf)
     }
 
@@ -110,8 +145,9 @@ impl<W: Write> Decompressor<W> {
 #[cfg(test)]
 mod tests {
     use crate::compression::clients::{Compressor, Decompressor};
-    use flate2::write::DeflateEncoder;
+    use flate2::write::{DeflateEncoder, DeflateDecoder};
     use std::io::prelude::*;
+    use std::io::BufWriter;
     use crate::compression::header::Header;
     use crate::compression::scheme::Scheme;
 
@@ -153,6 +189,32 @@ mod tests {
 
         assert!(result.len() > 0);
         assert_eq!(result, expected_result);
+    }
+
+    # [test]
+    fn can_wrap_compressor_write() {
+        let compressor = Compressor::new(Vec::new());
+        let mut writer = BufWriter::new(compressor);
+        let message = "Hello world! This is quite compressed....".as_bytes();
+
+        let expected_header = Header::new(Scheme::Deflate);
+        let mut reference_dec = DeflateDecoder::new(Vec::new());
+
+        writer.write_all(message).unwrap();
+        writer.flush().unwrap();
+        let result = writer.get_ref().get_ref();
+
+        let header_only = &result[..Header::serialized_size()];
+        let buf_only = &result[Header::serialized_size()..];
+
+        assert_eq!(header_only, expected_header.to_bytes().unwrap());
+
+        reference_dec.write_all(buf_only).unwrap();
+        reference_dec.flush().unwrap();
+        let decompressed_result = reference_dec.get_ref();
+
+        assert!(result.len() > 0);
+        assert_eq!(decompressed_result, message);
     }
 
     #[test]

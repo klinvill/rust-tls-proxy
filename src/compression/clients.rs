@@ -46,26 +46,6 @@ impl<W: Write> Compressor<DeflateEncoder<W>> {
         result
     }
 
-    pub fn compress(&mut self, buf: &[u8]) -> std::io::Result<()> {
-        if !self.wrote_header {
-            let header = Header::new(Scheme::Deflate);
-            let header_bytes = match header.to_bytes() {
-                Some(data) => data,
-                None => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "Could not convert header to bytes",
-                    ))
-                }
-            };
-            // We need to write the header to the underlying writer so the header is not compressed
-            self.encoder.get_mut().write_all(&header_bytes)?;
-            self.wrote_header = true;
-        }
-
-        self.encoder.write_all(buf)
-    }
-
     pub fn finish(self) -> std::io::Result<W> {
         self.encoder.finish()
     }
@@ -209,7 +189,7 @@ mod tests {
         let expected_compressed = reference_enc.finish().unwrap();
         let expected_result = [expected_header.to_bytes().unwrap(), expected_compressed].concat();
 
-        compressor.compress(message).unwrap();
+        compressor.write_all(message).unwrap();
         let result = compressor.finish().unwrap();
 
         assert!(result.len() > 0);
@@ -233,7 +213,7 @@ mod tests {
         let expected_result = [expected_header.to_bytes().unwrap(), expected_compressed].concat();
 
         for message in messages.iter() {
-            compressor.compress(message).unwrap();
+            compressor.write_all(message).unwrap();
         }
         let result = compressor.finish().unwrap();
 

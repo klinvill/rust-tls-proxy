@@ -18,6 +18,18 @@ impl<W: Write> Compressor<DeflateEncoder<W>> {
         }
     }
 
+    pub fn finish(self) -> std::io::Result<W> {
+        self.encoder.finish()
+    }
+
+    pub fn get_ref(&self) -> &W {
+        self.encoder.get_ref()
+    }
+
+    pub fn get_mut(&mut self) -> &mut W {
+        self.encoder.get_mut()
+    }
+
     fn write_header(&mut self) -> std::io::Result<usize> {
         if self.wrote_header {
             return Err(std::io::Error::new(
@@ -44,18 +56,6 @@ impl<W: Write> Compressor<DeflateEncoder<W>> {
         }
 
         result
-    }
-
-    pub fn finish(self) -> std::io::Result<W> {
-        self.encoder.finish()
-    }
-
-    pub fn get_ref(&self) -> &W {
-        self.encoder.get_ref()
-    }
-
-    pub fn get_mut(&mut self) -> &mut W {
-        self.encoder.get_mut()
     }
 }
 

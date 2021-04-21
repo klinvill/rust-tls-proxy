@@ -15,11 +15,36 @@ def jsonify(user, msg):
 # https://wiki.python.org/moin/BaseHttpServer
 class MyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        print("Sending response now")
         self.send_response(200, message="Ok")
         self.send_header("Content-Type", "text/plain")
         self.end_headers()
+        print("Sending response now")
         self.wfile.write(jsonify("John", "Response").encode('utf-8'))
+
+    # currently just act kinda like an echo server
+    def do_POST(self):
+        print("Handle POST request:")
+        print(self.requestline)
+        data = self.rfile.read().decode('utf-8')
+        #print(data.decode('utf-8'))
+        print(data)
+        print("Printed POST data")
+
+        start_index = data.index("=")+1
+        rest = data[start_index:]
+        user = data[start_index:start_index+rest.index("&")]
+        data = rest
+        start_index = data.index("=")+1
+        rest = data[start_index:]
+        msg = data[start_index:]
+
+        print("User is", user, "and msg is", msg)
+
+        self.send_response(200, message="Ok")
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(jsonify(user, msg).encode('utf-8'))
+
 
 # https://stackoverflow.com/questions/19434947/python-respond-to-http-request
 # https://docs.python.org/3/library/http.server.html

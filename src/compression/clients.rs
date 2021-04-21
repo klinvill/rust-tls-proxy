@@ -140,11 +140,48 @@ impl<W: Write> Decompressor<DeflateDecoder<W>> {
     pub fn finish(self) -> std::io::Result<W> {
         self.decoder.finish()
     }
+
+    pub fn get_ref(&self) -> &W {
+        self.decoder.get_ref()
+    }
+
+    pub fn get_mut(&mut self) -> &mut W {
+        self.decoder.get_mut()
+    }
+
+    fn parse_header(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match Header::from_bytes(buf) {
+            Some(header) => {
+                if header.scheme != Scheme::Deflate {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Only the deflate compression scheme is currently supported",
+                    ));
+                }
+                self.parsed_header = true;
+                Ok(Header::serialized_size())
+            }
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "A compression header must be present in the first few bytes of the buffer",
+            )),
+        }
+    }
 }
 
-impl<W: Write> Decompressor<W> {
+impl<W: Write> Write for Decompressor<DeflateDecoder<W>> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.decoder.write(buf)
+        let mut written = 0;
+        // We return the number of bytes parsed from the input buffer, rather than the number of
+        // bytes written to the stream. This is how flate2's write() works:
+        // https://github.com/rust-lang/flate2-rs/blob/7546110602fcc934ae506ed8d5cd9516e945d1ee/src/zio.rs#L218
+        if !self.parsed_header {
+            written += self.parse_header(buf)?;
+        }
+
+        written += self.decoder.write(&buf[written..])?;
+
+        Ok(written)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
@@ -283,5 +320,25 @@ mod tests {
             decompress_result.unwrap_err().kind(),
             std::io::ErrorKind::Other
         );
+    }
+
+    #[test]
+    fn can_wrap_decompressor_write() {
+        let decompressor = Decompressor::new(Vec::new());
+        let mut writer = BufWriter::new(decompressor);
+
+        let message = "Hello world! This is quite compressed....".as_bytes();
+        let mut reference_enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+        reference_enc.write_all(message).unwrap();
+        let header = Header::new(Scheme::Deflate);
+        let compressed_data = reference_enc.finish().unwrap();
+        let compressed_payload = [header.to_bytes().unwrap(), compressed_data].concat();
+
+        writer.write_all(&compressed_payload).unwrap();
+        writer.flush().unwrap();
+        let result = writer.get_ref().get_ref();
+
+        assert!(result.len() > 0);
+        assert_eq!(result, message);
     }
 }

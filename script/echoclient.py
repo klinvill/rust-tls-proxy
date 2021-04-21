@@ -33,8 +33,15 @@ def client(ip):
         sock.close()
 
 if __name__ == '__main__':
+    # 2 arugments = change target ip, otherwise check for option flags
     if len(sys.argv) != 2:
         ip = "172.40.17.19" # server-router external-facing ip
+        for i in range(len(sys.argv)-1):
+            arg = sys.argv[i]
+            if (arg == "--ip"):
+                ip = sys.argv[i+1]
+            elif (arg == "--port"):
+                ser_port = int(sys.argv[i+1])
     else:
         ip = sys.argv[1]
 

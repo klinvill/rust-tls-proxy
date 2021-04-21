@@ -91,32 +91,6 @@ impl<W: Write> Decompressor<DeflateDecoder<W>> {
         }
     }
 
-    pub fn decompress(&mut self, buf: &[u8]) -> std::io::Result<()> {
-        let compressed_bytes =
-            match self.parsed_header {
-                // The header must be the first few bytes in the compressed buffer
-                false => match Header::from_bytes(buf) {
-                    Some(header) => {
-                        if header.scheme != Scheme::Deflate {
-                            return Err(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                "Only the deflate compression scheme is currently supported",
-                            ));
-                        }
-                        self.parsed_header = true;
-                        &buf[Header::serialized_size()..]
-                    }
-                    None => return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "A compression header must be present in the first few bytes of the buffer",
-                    )),
-                },
-                true => buf,
-            };
-
-        self.decoder.write_all(compressed_bytes)
-    }
-
     pub fn finish(self) -> std::io::Result<W> {
         self.decoder.finish()
     }
@@ -258,7 +232,7 @@ mod tests {
         let compressed_payload = [header.to_bytes().unwrap(), compressed_data].concat();
 
         let mut decompressor = Decompressor::new(Vec::new());
-        decompressor.decompress(&compressed_payload).unwrap();
+        decompressor.write_all(&compressed_payload).unwrap();
         let result = decompressor.finish().unwrap();
 
         assert!(result.len() > 0);
@@ -278,7 +252,7 @@ mod tests {
 
         let mut decompressor = Decompressor::new(Vec::new());
         for payload in [payload_chunks.0, payload_chunks.1].iter() {
-            decompressor.decompress(&payload).unwrap();
+            decompressor.write_all(&payload).unwrap();
         }
         let result = decompressor.finish().unwrap();
 
@@ -295,7 +269,7 @@ mod tests {
         let compressed_data = reference_enc.finish().unwrap();
 
         let mut decompressor = Decompressor::new(Vec::new());
-        let decompress_result = decompressor.decompress(&compressed_data);
+        let decompress_result = decompressor.write_all(&compressed_data);
         assert_eq!(
             decompress_result.unwrap_err().kind(),
             std::io::ErrorKind::Other

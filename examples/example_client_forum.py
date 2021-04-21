@@ -21,7 +21,13 @@ def get(addr):
     pass
 
 def post(addr):
-    pass
+    URL = "http://" + addr[0] + ":" + str(addr[1]) + "/"
+    user = input("Enter a username to post a comment: ")
+    comment = input("Enter a comment to post: ")
+    DATA = {'user': user, 'msg': comment}
+    r = requests.post(url=URL, data=DATA)
+    #print(r.text)
+    return
 
 # https://www.geeksforgeeks.org/get-post-requests-using-python/
 def client(ip):

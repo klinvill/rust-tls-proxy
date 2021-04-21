@@ -104,22 +104,30 @@ impl<W: Write> Decompressor<DeflateDecoder<W>> {
     }
 
     fn parse_header(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match Header::from_bytes(buf) {
-            Some(header) => {
-                if header.scheme != Scheme::Deflate {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "Only the deflate compression scheme is currently supported",
-                    ));
-                }
-                self.parsed_header = true;
-                Ok(Header::serialized_size())
-            }
+        if self.parsed_header {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Header already parsed",
+            ));
+        }
+
+        let header = match Header::from_bytes(buf) {
+            Some(header) => Ok(header),
             None => Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "A compression header must be present in the first few bytes of the buffer",
             )),
-        }
+        }?;
+
+        if header.scheme != Scheme::Deflate {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Only the deflate compression scheme is currently supported",
+            ));
+        };
+
+        self.parsed_header = true;
+        Ok(Header::serialized_size())
     }
 }
 

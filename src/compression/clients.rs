@@ -160,16 +160,23 @@ mod tests {
     use std::io::prelude::*;
     use std::io::BufWriter;
 
+    /// Helper function to return the compressed record for the input data, complete with the
+    /// compression header.
+    fn get_deflate_compressed(data_chunks: &[&[u8]]) -> Vec<u8> {
+        let mut enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+        for chunk in data_chunks {
+            enc.write_all(chunk).unwrap();
+        }
+        let expected_header = Header::new(Scheme::Deflate);
+        let expected_compressed = enc.finish().unwrap();
+        [expected_header.to_bytes().unwrap(), expected_compressed].concat()
+    }
+
     #[test]
     fn compress_once() {
         let mut compressor = Compressor::new(Vec::new());
         let message = "Hello world! This is quite compressed....".as_bytes();
-
-        let mut reference_enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
-        reference_enc.write_all(message).unwrap();
-        let expected_header = Header::new(Scheme::Deflate);
-        let expected_compressed = reference_enc.finish().unwrap();
-        let expected_result = [expected_header.to_bytes().unwrap(), expected_compressed].concat();
+        let expected_result = get_deflate_compressed(&[message]);
 
         compressor.write_all(message).unwrap();
         let result = compressor.finish().unwrap();
@@ -185,14 +192,7 @@ mod tests {
             "Hello world!".as_bytes(),
             " This is quite compressed....".as_bytes(),
         ];
-
-        let mut reference_enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
-        for message in messages.iter() {
-            reference_enc.write_all(message).unwrap();
-        }
-        let expected_header = Header::new(Scheme::Deflate);
-        let expected_compressed = reference_enc.finish().unwrap();
-        let expected_result = [expected_header.to_bytes().unwrap(), expected_compressed].concat();
+        let expected_result = get_deflate_compressed(&messages);
 
         for message in messages.iter() {
             compressor.write_all(message).unwrap();
@@ -232,12 +232,7 @@ mod tests {
     #[test]
     fn decompress_once() {
         let expected_message = "Hello world! This is quite compressed....".as_bytes();
-
-        let mut reference_enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
-        reference_enc.write_all(expected_message).unwrap();
-        let header = Header::new(Scheme::Deflate);
-        let compressed_data = reference_enc.finish().unwrap();
-        let compressed_payload = [header.to_bytes().unwrap(), compressed_data].concat();
+        let compressed_payload = get_deflate_compressed(&[expected_message]);
 
         let mut decompressor = Decompressor::new(Vec::new());
         decompressor.write_all(&compressed_payload).unwrap();
@@ -250,12 +245,7 @@ mod tests {
     #[test]
     fn decompress_split_payloads() {
         let expected_message = "Hello world! This is quite compressed....".as_bytes();
-
-        let mut reference_enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
-        reference_enc.write_all(expected_message).unwrap();
-        let header = Header::new(Scheme::Deflate);
-        let compressed_data = reference_enc.finish().unwrap();
-        let full_payload: Vec<u8> = [header.to_bytes().unwrap(), compressed_data].concat();
+        let full_payload = get_deflate_compressed(&[expected_message]);
         let payload_chunks = full_payload.split_at(full_payload.len() / 2);
 
         let mut decompressor = Decompressor::new(Vec::new());
@@ -290,11 +280,7 @@ mod tests {
         let mut writer = BufWriter::new(decompressor);
 
         let message = "Hello world! This is quite compressed....".as_bytes();
-        let mut reference_enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
-        reference_enc.write_all(message).unwrap();
-        let header = Header::new(Scheme::Deflate);
-        let compressed_data = reference_enc.finish().unwrap();
-        let compressed_payload = [header.to_bytes().unwrap(), compressed_data].concat();
+        let compressed_payload = get_deflate_compressed(&[message]);
 
         writer.write_all(&compressed_payload).unwrap();
         writer.flush().unwrap();

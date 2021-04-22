@@ -2,6 +2,8 @@ import socket
 import sys
 import socketserver
 from http.server import BaseHTTPRequestHandler
+from http.server import HTTPServer
+import urllib.parse
 
 # using port numbers prepended with 9 to avoid calling sudo during test
 servport = 9090
@@ -15,21 +17,28 @@ def jsonify(user, msg):
 # https://wiki.python.org/moin/BaseHttpServer
 class MyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        print("")
+        print("GET for", self.client_address)
         self.send_response(200, message="Ok")
         self.send_header("Content-Type", "text/plain")
         self.end_headers()
-        print("Sending response now")
         self.wfile.write(jsonify("John", "Response").encode('utf-8'))
 
     # currently just act kinda like an echo server
     def do_POST(self):
-        print("Handle POST request:")
-        print(self.requestline)
-        data = self.rfile.read().decode('utf-8')
-        #print(data.decode('utf-8'))
+        print("")
+        print("POST for", self.client_address)
+        print("Request line:", self.requestline)
+        #print(self.headers) # stuff like Host and Content-Type
+        data = self.rfile.read(int(self.headers.get('Content-Length'))).decode('utf-8')
         print(data)
-        print("Printed POST data")
+        #print("Printed POST data")
 
+        # this handles weird url special character stuff, turns params into dict
+        data_dict = urllib.parse.parse_qs(data)
+        print(data_dict)
+
+        '''
         start_index = data.index("=")+1
         rest = data[start_index:]
         user = data[start_index:start_index+rest.index("&")]
@@ -37,8 +46,11 @@ class MyHandler(BaseHTTPRequestHandler):
         start_index = data.index("=")+1
         rest = data[start_index:]
         msg = data[start_index:]
+        '''
+        user = data_dict['user'][0]
+        msg = data_dict['msg'][0]
 
-        print("User is", user, "and msg is", msg)
+        #print("User is", user, "and msg is", msg)
 
         self.send_response(200, message="Ok")
         self.send_header("Content-Type", "text/plain")
@@ -50,8 +62,17 @@ class MyHandler(BaseHTTPRequestHandler):
 # https://docs.python.org/3/library/http.server.html
 def httpServer(port):
     print("Starting HTTP Server")
-    httpd = socketserver.TCPServer(("", port), MyHandler)
-    httpd.serve_forever()
+    #server_class = socketserver.TCPServer
+    server_class = HTTPServer
+    #httpd = socketserver.TCPServer(("", port), MyHandler)
+    httpd = server_class(("", port), MyHandler)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print('stopping client')
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
     return
 
 

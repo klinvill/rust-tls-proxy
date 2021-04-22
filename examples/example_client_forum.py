@@ -20,12 +20,13 @@ def continue_prompt():
 
 def get(addr):
     URL = "http://" + addr[0] + ":" + str(addr[1]) + "/"
-    user = input("Whose messages do you want to display? ")
+    user = input("Whose messages do you want to display? (Leave blank to display all messages)\n")
     PARAMS = {'user':user}
     r = requests.get(url = URL, params = PARAMS)
-    print(r)
-    print("Now printing JSON")
-    print(r.json())
+    print("Comments:")
+    print(r.text)
+    #print("Now printing JSON")
+    #print(r.json())
     return continue_prompt()
 
 def post(addr):
@@ -34,9 +35,17 @@ def post(addr):
     comment = input("Enter a comment to post: ")
     DATA = {'user': user, 'msg': comment}
     r = requests.post(url = URL, data = DATA)
-    print("Received:", r.text)
-    com = r.json()
-    print(com)
+    resp = r.text
+    print(resp)
+    '''
+    print("Received:\n" + get-post-requests-using-python)
+
+    try:
+        json_start = resp.index("{")
+        resp_start = resp[0:json_start]
+        com = r.json()
+        print(com)
+    '''
     return continue_prompt()
 
 # https://www.geeksforgeeks.org/get-post-requests-using-python/

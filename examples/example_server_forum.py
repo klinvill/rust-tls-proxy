@@ -68,29 +68,32 @@ class MyHandler(BaseHTTPRequestHandler):
         finally:
             print("Request params:", data_dict)
 
-        # If no user specified, get all comments.
-        if not 'user' in data_dict:
+        try:
             fd = open(posts_file, "r")
-            output_txt = fd.read()
-            fd.close()
-        # Fetch comments from specified user
-        else:
-            comment = ""
-            cnt = 0
-            fd = open(posts_file, "r")
-            while True:
-                comment = fd.readline()
-                if not comment:
-                    break
-                cmt_json = read_simple_json(comment, 0)
-                print(cmt_json)
-                if(cmt_json['user'] == data_dict['user'][0]):
-                    cnt += 1
-                    output_txt += comment
-            fd.close()
-            print("Number of matches:", cnt)
-            if(cnt == 0):
-                output_txt = "This user has no comments."
+            # If no user specified, get all comments.
+            if not 'user' in data_dict:
+                output_txt = fd.read()
+            # Fetch comments from specified user
+            else:
+                comment = ""
+                cnt = 0
+                fd = open(posts_file, "r")
+                while True:
+                    comment = fd.readline()
+                    if not comment:
+                        break
+                    cmt_json = read_simple_json(comment, 0)
+                    #print(cmt_json)
+                    if(cmt_json['user'] == data_dict['user'][0]):
+                        cnt += 1
+                        output_txt += comment
+                print("Number of matches:", cnt)
+                if(cnt == 0):
+                    output_txt = "This user has no comments."
+        except:
+            output_txt += ("Error opening file \"" + posts_file + "\"\n")
+            output_txt += "Did you make sure it exists? Maybe post something first.\n"
+            print(output_txt)
 
         self.send_response(200, message="Ok")
         self.send_header("Content-Type", "text/plain")
@@ -113,15 +116,6 @@ class MyHandler(BaseHTTPRequestHandler):
         data_dict = urllib.parse.parse_qs(data)
         print(data_dict)
 
-        '''
-        start_index = data.index("=")+1
-        rest = data[start_index:]
-        user = data[start_index:start_index+rest.index("&")]
-        data = rest
-        start_index = data.index("=")+1
-        rest = data[start_index:]
-        msg = data[start_index:]
-        '''
         user = data_dict['user'][0]
         msg = data_dict['msg'][0]
 

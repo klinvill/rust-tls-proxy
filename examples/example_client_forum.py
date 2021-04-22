@@ -10,6 +10,14 @@ def jsonify(user, msg):
     max_chars -= (num_attributes*6+1) # "":"", and {} but last line has no comma
     return "{\"user\":\"" + user + "\",\"msg\":\"" + msg + "\"}";
 
+def continue_prompt():
+    ctn = input("Continue? (T/F)")
+    if ctn.upper() == "T":
+        ctn = True
+    else:
+        ctn = False
+    return ctn
+
 def get(addr):
     URL = "http://" + addr[0] + ":" + str(addr[1]) + "/"
     user = input("Whose messages do you want to display? ")
@@ -18,31 +26,32 @@ def get(addr):
     print(r)
     print("Now printing JSON")
     print(r.json())
-    pass
+    return continue_prompt()
 
 def post(addr):
     URL = "http://" + addr[0] + ":" + str(addr[1]) + "/"
     user = input("Enter a username to post a comment: ")
     comment = input("Enter a comment to post: ")
     DATA = {'user': user, 'msg': comment}
-    r = requests.post(url=URL, data=DATA)
-    #print(r.text)
-    return
+    r = requests.post(url = URL, data = DATA)
+    print("Received:", r.text)
+    com = r.json()
+    print(com)
+    return continue_prompt()
 
 # https://www.geeksforgeeks.org/get-post-requests-using-python/
 def client(ip):
     server_address = (ip, ser_port)
+    keep_going = True
     try:
-        while True:
+        while keep_going:
             mode = input("Do you want to get or post? ")
             if (mode.upper() == "GET"):
-                get(server_address)
+                keep_going = get(server_address)
             elif (mode.upper() == "POST"):
-                post(server_address)
+                keep_going = post(server_address)
     except KeyboardInterrupt:
         print('stopping client')
-    #finally:
-    #    sock.close()
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:

@@ -10,6 +10,26 @@ import forum_util as ut
 servport = 9090
 posts_file = "./posts/posts.txt"
 
+
+def getCommentsFromUser(fd, usr):
+    output_txt = "["
+    comment = fd.read()
+    cnt = 0
+    offset = 0
+    while True:
+        cmt_json = ut.read_simple_json(comment, offset)
+        if(cmt_json == None):
+            break
+        offset += (cmt_json['_offset'] + cmt_json['_length']) # relative positional seek
+        if(usr == None or cmt_json['user'] == usr):
+            cnt += 1
+            output_txt += (ut.jsonify_urllib_params(cmt_json) + ",")
+    print("Number of matches:", cnt)
+    output_txt = output_txt[0:-1] + "]" # replace newline at the end of last comment
+    if(cnt == 0):
+        return None
+    return output_txt
+
 # https://wiki.python.org/moin/BaseHttpServer
 class MyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -30,31 +50,13 @@ class MyHandler(BaseHTTPRequestHandler):
             fd = open(posts_file, "r")
             # If no user specified, get all comments.
             if not 'user' in data_dict:
-                output_txt = "[" + fd.read()
-                output_txt = output_txt[0:-1] + "]" # replace newline at the end of last comment
+                output_txt = getCommentsFromUser(fd, None)
             # Fetch comments from specified user
             else:
-                output_txt = "["
-                comment = fd.read()
-                cnt = 0
-                offset = 0
-                while True:
-                    #comment = fd.read()
-                    #if not comment:
-                    #    break
-                    cmt_json = ut.read_simple_json(comment, offset)
-                    if(cmt_json == None):
-                        break
-                    print(cmt_json)
-                    print(comment[offset:offset+30])
-                    offset += (cmt_json['_offset'] + cmt_json['_length']) # relative positional seek
-                    if(cmt_json['user'] == data_dict['user'][0]):
-                        cnt += 1
-                        output_txt += (ut.jsonify_urllib_params(cmt_json) + ",")
-                print("Number of matches:", cnt)
-                output_txt = output_txt[0:-1] + "]" # replace newline at the end of last comment
-                if(cnt == 0):
+                output_txt = getCommentsFromUser(fd, data_dict['user'][0])
+                if(output_txt == None):
                     output_txt = "This user has no comments."
+            fd.close()
         except:
             output_txt = ("\nError opening file \"" + posts_file + "\" or retrieving data.\n")
             output_txt += "Did you make sure it exists? Maybe post something first.\n"

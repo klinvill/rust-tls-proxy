@@ -21,7 +21,23 @@ def filter_out_char(in_str, rem_ch):
 			new_str += c
 	return new_str
 
+def unescape(in_str):
+	new_str = ""
+	length = len(in_str)
+	i = 0
+	while i < length:
+		c = in_str[i]
+		if c == "\\" and i+1 < length:
+			new_str += in_str[i+1]
+			i += 1
+		elif c != "\\":
+			new_str += c
+		i += 1
+	return new_str
+
+
 # I did this in case any messages have newline characters (so I won't necessarily store comments as one line the posts file)
+# Also, the 
 def read_simple_json(json_str, start_idx):
 	return_dict = {}
 	in_quotes = False
@@ -59,9 +75,9 @@ def read_simple_json(json_str, start_idx):
 					quote_start = seeker
 				if in_quotes:
 					if param == None and seeker+1 < length and json_str[seeker+1] == ":":
-						param = json_str[quote_start+1:seeker]
+						param = unescape(json_str[quote_start+1:seeker])
 					else:
-						return_dict[param] = json_str[quote_start+1:seeker]
+						return_dict[param] = unescape(json_str[quote_start+1:seeker])
 						param = None
 					quote_start = None
 				in_quotes = not in_quotes

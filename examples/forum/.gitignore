@@ -1,2 +1,1 @@
-# this is in here to ensure that the forum folder exists
-*.txt
+__pycache__/*

@@ -1,14 +1,9 @@
 import socket
 import sys
 import requests
+import forum_util
 
-ser_port = 9443 # server-router using 9443 instead of 443 to avoid sudo during test
-
-def jsonify(user, msg):
-    max_chars = 256
-    num_attributes = 2
-    max_chars -= (num_attributes*6+1) # "":"", and {} but last line has no comma
-    return "{\"user\":\"" + user + "\",\"msg\":\"" + msg + "\"}";
+ser_port = 9090
 
 def continue_prompt():
     ctn = input("Continue? (T/F)")
@@ -24,9 +19,17 @@ def get(addr):
     PARAMS = {'user':user}
     r = requests.get(url = URL, params = PARAMS)
     print("Comments:")
-    print(r.text)
-    #print("Now printing JSON")
-    #print(r.json())
+    #print(r.text)
+    try:
+        r_json = r.json()
+        for post in r_json:
+            print("________________________________")
+            print("User:", post['user'])
+            print(post['msg'])
+    except:
+        print("Could not parse response as JSON")
+        print(r.text)
+    print("")
     return continue_prompt()
 
 def post(addr):
@@ -37,20 +40,11 @@ def post(addr):
     r = requests.post(url = URL, data = DATA)
     resp = r.text
     print(resp)
-    '''
-    print("Received:\n" + get-post-requests-using-python)
-
-    try:
-        json_start = resp.index("{")
-        resp_start = resp[0:json_start]
-        com = r.json()
-        print(com)
-    '''
     return continue_prompt()
 
 # https://www.geeksforgeeks.org/get-post-requests-using-python/
-def client(ip):
-    server_address = (ip, ser_port)
+def client(ip, port):
+    server_address = (ip, port)
     keep_going = True
     try:
         while keep_going:
@@ -61,8 +55,11 @@ def client(ip):
                 keep_going = post(server_address)
     except KeyboardInterrupt:
         print('stopping client')
+    return
+
 
 if __name__ == '__main__':
+    port = ser_port
     if len(sys.argv) != 2:
         ip = "172.40.17.19" # server-router external-facing ip
         for i in range(len(sys.argv)-1):
@@ -70,8 +67,8 @@ if __name__ == '__main__':
             if (arg == "--ip" and sys.argv[i+1] != "default"):
                 ip = sys.argv[i+1]
             elif (arg == "--port" and sys.argv[i+1] != "default"):
-                ser_port = int(sys.argv[i+1])
+                port = int(sys.argv[i+1])
     else:
         ip = sys.argv[1]
 
-    client(ip)
+    client(ip, port)

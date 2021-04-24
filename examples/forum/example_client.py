@@ -22,11 +22,14 @@ def get(addr):
     r.encoding = 'utf-8' #tells how to decode response into string
     print("Comments:")
     try:
+        r.raise_for_status()
         r_json = r.json()
         for post in r_json:
             print("________________________________")
             print("User:", post['user'])
             print(post['msg'])
+    except HTTPError as http_err:
+        print(http_err)
     except:
         print("Could not parse response as JSON")
         print(r.text)

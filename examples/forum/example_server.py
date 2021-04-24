@@ -43,6 +43,8 @@ class MyHandler(BaseHTTPRequestHandler):
         print("GET for", self.client_address)
         print("Path:", self.path)
 
+        status = 200
+        status_msg = "Ok"
         output_txt = ""
         data_dict = {}
         try:
@@ -52,8 +54,8 @@ class MyHandler(BaseHTTPRequestHandler):
         finally:
             print("Request params:", data_dict)
 
-        with open(posts_file, "r") as fd:
-            try:
+        try:
+            with open(posts_file, "r") as fd:
                 # If no user specified, get all comments.
                 if not 'user' in data_dict:
                     output_txt = getCommentsFromUser(fd, None)
@@ -62,15 +64,17 @@ class MyHandler(BaseHTTPRequestHandler):
                     output_txt = getCommentsFromUser(fd, data_dict['user'][0])
                     if(output_txt == None):
                         output_txt = "This user has no comments."
-            except:
-                output_txt = ("\nGET error opening file \"" + posts_file + "\" or retrieving data.\n")
-                output_txt += "Did you make sure it exists? Maybe post something first.\n"
-                print(output_txt)
+        except:
+            status = 500
+            status_msg = "Error Retrieving Data -- File read fail or may not exist."
+            print(status_msg + "\n")
 
-        self.send_response(200, message="Ok")
-        self.send_header("Content-Type", "text/plain")
+        self.send_response(status, status_msg)
+        if status == 200:
+            self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(output_txt.encode('utf-8'))
+        if status == 200:
+            self.wfile.write(output_txt.encode('utf-8'))
         
 
     # currently just act kinda like an echo server

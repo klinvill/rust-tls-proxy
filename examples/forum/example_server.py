@@ -13,7 +13,13 @@ posts_file = "./posts/posts.txt"
 
 def getCommentsFromUser(fd, usr):
     output_txt = "["
-    comment = fd.read()
+    comment = ""
+    try:
+        comment = fd.read()
+    except:
+        err = "Error reading file {}".format(posts_file)
+        print(err)
+        raise Exception(err)
     cnt = 0
     offset = 0
     while True:
@@ -46,21 +52,20 @@ class MyHandler(BaseHTTPRequestHandler):
         finally:
             print("Request params:", data_dict)
 
-        try:
-            fd = open(posts_file, "r")
-            # If no user specified, get all comments.
-            if not 'user' in data_dict:
-                output_txt = getCommentsFromUser(fd, None)
-            # Fetch comments from specified user
-            else:
-                output_txt = getCommentsFromUser(fd, data_dict['user'][0])
-                if(output_txt == None):
-                    output_txt = "This user has no comments."
-            fd.close()
-        except:
-            output_txt = ("\nError opening file \"" + posts_file + "\" or retrieving data.\n")
-            output_txt += "Did you make sure it exists? Maybe post something first.\n"
-            print(output_txt)
+        with open(posts_file, "r") as fd:
+            try:
+                # If no user specified, get all comments.
+                if not 'user' in data_dict:
+                    output_txt = getCommentsFromUser(fd, None)
+                # Fetch comments from specified user
+                else:
+                    output_txt = getCommentsFromUser(fd, data_dict['user'][0])
+                    if(output_txt == None):
+                        output_txt = "This user has no comments."
+            except:
+                output_txt = ("\nGET error opening file \"" + posts_file + "\" or retrieving data.\n")
+                output_txt += "Did you make sure it exists? Maybe post something first.\n"
+                print(output_txt)
 
         self.send_response(200, message="Ok")
         self.send_header("Content-Type", "text/plain")
@@ -70,27 +75,39 @@ class MyHandler(BaseHTTPRequestHandler):
 
     # currently just act kinda like an echo server
     def do_POST(self):
+        status = 200
+        status_msg = "Ok"
+        json_to_send = ""
         print("")
         print("POST for", self.client_address)
-        #print(self.headers) # stuff like Host and Content-Type
-        data = self.rfile.read(int(self.headers.get('Content-Length'))).decode('utf-8')
-        print(data)
+        
+        try:
+            data = self.rfile.read(int(self.headers.get('Content-Length'))).decode('utf-8')
+            print(data)
+            # this handles weird url special character stuff, turns params into dict
+            data_dict = urllib.parse.parse_qs(data)
+            print(data_dict)
+            json_to_send = ut.jsonify_urllib_params(data_dict)
+        except:
+            status = 500
+            status_msg = "Error reading POST data"
+            print(status_msg + "\n")
 
-        # this handles weird url special character stuff, turns params into dict
-        data_dict = urllib.parse.parse_qs(data)
-        print(data_dict)
+        #append comment to forum post file
+        try:
+            with open(posts_file, "a") as fd:
+                fd.write(json_to_send + "\n")
+        except:
+            status = 500
+            status_msg = "Error posting comment"
+            print(status_msg + "\n")
 
-        json_to_send = ut.jsonify_urllib_params(data_dict)
-
-        #write comment in forum post file
-        fd = open(posts_file, "a")
-        fd.write(json_to_send + "\n")
-        fd.close()
-
-        self.send_response(200, message="Ok")
-        self.send_header("Content-Type", "text/plain")
+        self.send_response(status, "Server Error: " + status_msg)
+        if status == 200:
+            self.send_header("Content-Type", "text/plain")
         self.end_headers()
-        self.wfile.write(("Message Posted:\n" + json_to_send).encode('utf-8'))
+        if status == 200:
+            self.wfile.write(("Message Posted:\n" + json_to_send).encode('utf-8'))
 
 
 # https://stackoverflow.com/questions/19434947/python-respond-to-http-request

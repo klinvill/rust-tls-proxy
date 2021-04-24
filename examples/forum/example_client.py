@@ -2,6 +2,7 @@ import socket
 import sys
 import requests
 import forum_util
+from requests.exceptions import HTTPError
 
 ser_port = 9090
 
@@ -18,8 +19,8 @@ def get(addr):
     user = input("Whose messages do you want to display? (Leave blank to display all messages)\n")
     PARAMS = {'user':user}
     r = requests.get(url = URL, params = PARAMS)
+    r.encoding = 'utf-8' #tells how to decode response into string
     print("Comments:")
-    #print(r.text)
     try:
         r_json = r.json()
         for post in r_json:
@@ -38,8 +39,13 @@ def post(addr):
     comment = input("Enter a comment to post: ")
     DATA = {'user': user, 'msg': comment}
     r = requests.post(url = URL, data = DATA)
-    resp = r.text
-    print(resp)
+    r.encoding = 'utf-8' #tells how to decode response into string
+    try:
+        r.raise_for_status() # throw an error if status is not within 200-400
+        print(r.text)
+    # https://realpython.com/python-requests/
+    except HTTPError as http_err:
+        print(http_err)
     return continue_prompt()
 
 # https://www.geeksforgeeks.org/get-post-requests-using-python/

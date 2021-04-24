@@ -4,22 +4,13 @@ import json
 def jsonify_urllib_params(input_dict):
 	new_dict = {}
 	for key in input_dict:
-		# filter quote from key and ignore metadeta (key starting with _)
-		nk = filter_out_char(key, "\"")
+		# ignore metadeta (key starting with _)
 		if key[0] != "_":
 			val = input_dict[key]
 			if len(val) == 1:
 				val = val[0]
-			new_dict[nk] = val
+			new_dict[key] = val
 	return json.dumps(new_dict)
-
-# I could use the built-in filter function, but this is a little more clear
-def filter_out_char(in_str, rem_ch):
-	new_str = ""
-	for c in in_str:
-		if c != rem_ch:
-			new_str += c
-	return new_str
 
 def unescape(in_str):
 	new_str = ""
@@ -37,7 +28,7 @@ def unescape(in_str):
 
 
 # I did this in case any messages have newline characters (so I won't necessarily store comments as one line the posts file)
-# Also, the 
+# Also, the json.dumps inserts escape characters before special characters (to tell textual " apart from json ") so I "unescape" them when producing the dictionary values.
 def read_simple_json(json_str, start_idx):
 	return_dict = {}
 	in_quotes = False

@@ -5,10 +5,12 @@ from http.server import BaseHTTPRequestHandler
 from http.server import HTTPServer
 import urllib.parse
 import forum_util as ut
+import ssl
 
 # using port numbers prepended with 9 to avoid calling sudo during test
 servport = 9090
 posts_file = "./posts/posts.txt"
+default_cert = "localhost.pem"
 
 
 def getCommentsFromUser(fd, usr):
@@ -51,6 +53,8 @@ class MyHandler(BaseHTTPRequestHandler):
             # params is everything after "?"
             params = self.path[self.path.index("?")+1:]
             data_dict = urllib.parse.parse_qs(params)
+        except:
+            print("No params or maybe error in params")
         finally:
             print("Request params:", data_dict)
 
@@ -90,6 +94,11 @@ class MyHandler(BaseHTTPRequestHandler):
             print(data)
             # this handles weird url special character stuff, turns params into dict
             data_dict = urllib.parse.parse_qs(data)
+            # Robustness in case of curl POST request lacking expected params (or I could do a server error instead)
+            if not 'user' in data_dict:
+                data_dict['user'] = "Anon"
+            if not 'msg' in data_dict:
+                data_dict['msg'] = "Blank"
             print(data_dict)
             json_to_send = ut.jsonify_urllib_params(data_dict)
         except:
@@ -97,14 +106,15 @@ class MyHandler(BaseHTTPRequestHandler):
             status_msg = "Error reading POST data"
             print(status_msg + "\n")
 
-        #append comment to forum post file
-        try:
-            with open(posts_file, "a") as fd:
-                fd.write(json_to_send + "\n")
-        except:
-            status = 500
-            status_msg = "Error posting comment"
-            print(status_msg + "\n")
+        #append comment to forum post file; only do so if there is actually data to write.
+        if status == 200:
+            try:
+                with open(posts_file, "a") as fd:
+                    fd.write(json_to_send + "\n")
+            except:
+                status = 500
+                status_msg = "Error posting comment"
+                print(status_msg + "\n")
 
         self.send_response(status, "Server Error: " + status_msg)
         if status == 200:
@@ -116,10 +126,14 @@ class MyHandler(BaseHTTPRequestHandler):
 
 # https://stackoverflow.com/questions/19434947/python-respond-to-http-request
 # https://docs.python.org/3/library/http.server.html
-def httpServer(port):
-    print("Starting HTTP Server on port", port)
+def startServer(port, mode, cert):
     server_class = HTTPServer
     httpd = server_class(("", port), MyHandler)
+    if mode == "HTTPS":
+        httpd.socket = ssl.wrap_socket(httpd.socket,
+            server_side=True,
+            certfile='localhost.pem',
+            ssl_version=ssl.PROTOCOL_TLS)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -129,14 +143,10 @@ def httpServer(port):
         httpd.server_close()
     return
 
-# John will do this part
-def httpsServer(port):
-    raise Exception("HTTPS server is not supported yet")
-
-
 if __name__ == '__main__':
     port = servport
     mode = "HTTP"
+    cert = default_cert
     if len(sys.argv) > 1:
         ip = "172.40.17.19" # server-router external-facing ip
         for i in range(len(sys.argv)-1):
@@ -145,9 +155,13 @@ if __name__ == '__main__':
                 port = int(sys.argv[i+1])
             elif (arg == "--mode"):
                 mode = (sys.argv[i+1]).upper()
+            elif (arg == "--cert"):
+                cert = sys.argv[i+1]
     if mode == "HTTP":
-        httpServer(port)
+        print("Starting HTTP Server on port", port)
+        startServer(port, mode, cert)
     elif mode == "HTTPS":
-        httpsServer(port)
+        print("Starting HTTPS Server on port", port)
+        startServer(port, mode, cert)
     else:
         raise Exception("Server mode {} is not supported.".format(mode))

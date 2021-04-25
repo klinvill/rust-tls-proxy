@@ -61,7 +61,7 @@ def client(ip, port, mode):
                 break
             print("")
     except KeyboardInterrupt:
-        print("\nkeyboard interrupt")
+        print("keyboard interrupt")
     print('Stopping Client')
     print("Goodbye!")
     return

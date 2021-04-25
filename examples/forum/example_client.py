@@ -6,15 +6,23 @@ from requests.exceptions import HTTPError
 
 ser_port = 9090
 
-def get(addr, mode):
-    if(mode == "HTTPS"):
-        raise Exception("HTTPS GET is not supported yet")
-    URL = "http://" + addr[0] + ":" + str(addr[1]) + "/"
+class conn_info:
+    def __init__(self, ip, port, mode, secure):
+        self.ip = ip
+        self.port = port
+        self.mode = mode # http, https, etc.
+        self.secure = secure
+
+
+def get(conn):
+    mode = conn.mode
+    URL = mode.lower() + "://" + conn.ip + ":" + str(conn.port) + "/"
     user = input("Whose messages do you want to display? (Leave blank to display all messages)\n")
     PARAMS = {'user':user}
     try:
-        r = requests.get(url = URL, params = PARAMS)
-    except:
+        r = requests.get(url = URL, params = PARAMS, verify = conn.secure)
+    except Exception as e:
+        print(e)
         raise Exception("Error connecting to server")
     r.encoding = 'utf-8' #tells how to decode response into string
     print("Comments:")
@@ -31,38 +39,34 @@ def get(addr, mode):
         print("Could not parse response as JSON")
         print(r.text)
 
-def post(addr, mode):
-    if(mode == "HTTPS"):
-        raise Exception("HTTPS POST is not supported yet")
-    URL = "http://" + addr[0] + ":" + str(addr[1]) + "/"
+def post(conn):
+    mode = conn.mode
+    URL = mode.lower() + "://" + conn.ip + ":" + str(conn.port) + "/"
     user = input("Enter a username to post a comment: ")
     comment = input("Enter a comment to post: ")
     DATA = {'user': user, 'msg': comment}
     try:
-        r = requests.post(url = URL, data = DATA)
-    except:
+        r = requests.post(url = URL, data = DATA, verify = conn.secure)
+    except Exception as e:
+        print(e)
         raise Exception("Error connecting to server")
     r.encoding = 'utf-8' #tells how to decode response into string
     try:
         r.raise_for_status() # throw an error if status is not within 200-400
         print(r.text)
-    # https://realpython.com/python-requests/
     except HTTPError as http_err:
         print(http_err)
 
 # https://www.geeksforgeeks.org/get-post-requests-using-python/
-def client(ip, port, mode):
+def client(conn):
     # so far it seems like all I need to do is change the http:// to https:// in the get and post methods. I'm not sure though.
-    if(mode == "HTTPS"):
-        raise Exception("HTTPS client is not supported yet")
-    server_address = (ip, port)
     try:
         while True:
             action = input("Do you want to get, post, or quit? ")
             if (action.upper() == "GET"):
-                keep_going = get(server_address, mode)
+                keep_going = get(conn)
             elif (action.upper() == "POST"):
-                keep_going = post(server_address, mode)
+                keep_going = post(conn)
             elif (action.upper() == "QUIT"):
                 break
             print("")
@@ -79,6 +83,7 @@ def client(ip, port, mode):
 if __name__ == '__main__':
     port = ser_port
     mode = "HTTP"
+    secure = False
     if len(sys.argv) == 2:
         ip = sys.argv[1] # legacy implementation
     else:
@@ -92,7 +97,13 @@ if __name__ == '__main__':
             elif (arg == "--mode"):
                 mode = (sys.argv[i+1]).upper()
         
-    if mode == "HTTP" or mode == "HTTPS":
-        client(ip, port, mode)
+    if mode == "HTTP":
+        print("Starting HTTP client on port {}".format(port))
+    elif mode == "HTTPS":
+        print("Starting HTTPS client on port {}".format(port))
+        tf = input("\nDo you want to require certificate verification? (T/F) ")
+        secure = not (tf.upper() == "F") # default to true for unrecognized input, otherwise set False
     else:
         raise Exception("Client mode {} is not supported.".format(mode))
+    conn = conn_info(ip, port, mode, secure)
+    client(conn)

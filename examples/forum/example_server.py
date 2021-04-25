@@ -129,7 +129,25 @@ def httpServer(port):
         httpd.server_close()
     return
 
+# John will do this part
+def httpsServer(port):
+    raise Exception("HTTPS server is not supported yet")
+
 
 if __name__ == '__main__':
     port = servport
-    httpServer(port)
+    mode = "HTTP"
+    if len(sys.argv) > 1:
+        ip = "172.40.17.19" # server-router external-facing ip
+        for i in range(len(sys.argv)-1):
+            arg = sys.argv[i]
+            if (arg == "--port"):
+                port = int(sys.argv[i+1])
+            elif (arg == "--mode"):
+                mode = (sys.argv[i+1]).upper()
+    if mode == "HTTP":
+        httpServer(port)
+    elif mode == "HTTPS":
+        httpsServer(port)
+    else:
+        raise Exception("Server mode {} is not supported.".format(mode))

@@ -12,7 +12,10 @@ def get(addr, mode):
     URL = "http://" + addr[0] + ":" + str(addr[1]) + "/"
     user = input("Whose messages do you want to display? (Leave blank to display all messages)\n")
     PARAMS = {'user':user}
-    r = requests.get(url = URL, params = PARAMS)
+    try:
+        r = requests.get(url = URL, params = PARAMS)
+    except:
+        raise Exception("Error connecting to server")
     r.encoding = 'utf-8' #tells how to decode response into string
     print("Comments:")
     try:
@@ -35,7 +38,10 @@ def post(addr, mode):
     user = input("Enter a username to post a comment: ")
     comment = input("Enter a comment to post: ")
     DATA = {'user': user, 'msg': comment}
-    r = requests.post(url = URL, data = DATA)
+    try:
+        r = requests.post(url = URL, data = DATA)
+    except:
+        raise Exception("Error connecting to server")
     r.encoding = 'utf-8' #tells how to decode response into string
     try:
         r.raise_for_status() # throw an error if status is not within 200-400
@@ -61,7 +67,10 @@ def client(ip, port, mode):
                 break
             print("")
     except KeyboardInterrupt:
-        print("keyboard interrupt")
+        print("\nkeyboard interrupt")
+    except Exception as e:
+        print("\nProgram terminated due to error:")
+        print("  ", e)
     print('Stopping Client')
     print("Goodbye!")
     return

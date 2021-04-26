@@ -28,7 +28,11 @@ mod reverse_proxy;
 use error_chain::bail;
 use error_chain::ChainedError;
 mod errors {
-    error_chain::error_chain! {}
+    error_chain::error_chain! {
+        foreign_links {
+            NixError(nix::Error);
+        }
+    }
 }
 use errors::*;
 
@@ -51,12 +55,12 @@ const ABOUT_STR : &str = "Project for network systems class to build a \
 
 const FORWARD_PORT_HELP : &str = const_format::formatcp!(
     "port number receiving intercepted client connections, default {}", 
-    forward_proxy::DEFAULT_PORT
+    forward_proxy::PROXY_REDIR_PORT
 );
 
 const REVERSE_PORT_HELP : &str = const_format::formatcp!(
     "port number receiving incoming connections, default {}",
-    reverse_proxy::DEFAULT_PORT
+    reverse_proxy::HTTPS_PORT
 );
 
 fn run() -> Result<()> {
@@ -107,7 +111,7 @@ fn run() -> Result<()> {
                         .chain_err(
                             || format!("error parsing port number \"{}\"", p)
                         )?,
-                    None => forward_proxy::DEFAULT_PORT,
+                    None => forward_proxy::PROXY_REDIR_PORT,
                 };
 
                 SocketAddr::from((IpAddr::from([0, 0, 0, 0]), port))
@@ -121,7 +125,7 @@ fn run() -> Result<()> {
                         .chain_err(
                             || format!("error parsing port number \"{}\"", p)
                         )?,
-                    None => reverse_proxy::DEFAULT_PORT,
+                    None => reverse_proxy::HTTPS_PORT,
                 };
 
                 SocketAddr::from((IpAddr::from([0, 0, 0, 0]), port))

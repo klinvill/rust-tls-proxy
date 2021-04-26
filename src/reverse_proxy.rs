@@ -1,10 +1,9 @@
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use std::net::{SocketAddr, Shutdown};
+use std::net::SocketAddr;
 use crate::errors::*;
 
-// using 9443 instead of 443 for https to avoid running with sudo during test
-pub const DEFAULT_PORT : u16 = 9443; 
+pub const HTTPS_PORT : u16 = 9443; 
 
 pub fn run(
     local_addr: SocketAddr, 
@@ -27,7 +26,7 @@ pub fn run(
             )?;
 
         loop {
-            let (mut from_conn, from_addr) = listen_socket.accept().await
+            let (from_conn, from_addr) = listen_socket.accept().await
                 .chain_err(|| 
                     format!("error accepting connection")
                 )?;

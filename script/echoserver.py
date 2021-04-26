@@ -1,9 +1,10 @@
 import socket
 import sys
 
-# using port numbers prepended with 9 to avoid calling sudo during test
-servport = 9080
-proxyport = 9443
+# using port numbers prepended with 9s to avoid calling sudo during test
+http_port = 9980
+https_port = 9443
+proxy_redir_port = 8080
 
 def server(port, proxy): 
     print('starting server on port {}'.format(port))
@@ -46,10 +47,10 @@ if __name__ == '__main__':
         sys.exit(1)
 
     if (sys.argv[1] == '--proxy'):
-        port = proxyport
+        port = proxy_redir_port
         proxy = True
     elif (sys.argv[1] == '--server'):
-        port = servport
+        port = http_port
         proxy = False
     else:
         print('unknown argument: {}'.format(sys.argv[1]))

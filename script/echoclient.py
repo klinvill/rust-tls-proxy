@@ -1,10 +1,13 @@
 import socket
 import sys
 
-ser_port = 9443 # server-router using 9443 instead of 443 to avoid sudo during test
+# using port numbers prepended with 9s to avoid calling sudo during testing
+http_port = 9980
+https_port = 9443
+redir_port = 8080
 
 def client(ip):
-    server_address = (ip, ser_port)
+    server_address = (ip, http_port)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 

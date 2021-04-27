@@ -2,7 +2,7 @@ use crate::errors::*;
 use nix::sys::socket;
 use std::net::SocketAddr;
 use std::os::unix::io::AsRawFd;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::reverse_proxy;
@@ -38,14 +38,20 @@ pub fn run(local_addr: SocketAddr, compress: bool, encrypt: bool) -> Result<()> 
                     let to_addr =
                         SocketAddr::new(inet_addr.ip().to_std(), reverse_proxy::HTTPS_PORT);
 
-                    tokio::spawn(async move {
-                        if let Ok(to_conn) = TcpStream::connect(to_addr).await {
-                            println!("connection opened to {}", to_addr);
-                            server(from_conn, to_conn, compress, encrypt).await;
-                        } else {
-                            eprintln!("failed to connect to {}", to_addr);
-                        }
-                    });
+                    if let Ok(to_conn) = TcpStream::connect(to_addr).await {
+                        println!("connection opened to {}", to_addr);
+                        let (client_read, client_write) = split::<TcpStream>(from_conn);
+                        let (server_read, server_write) = split::<TcpStream>(to_conn);
+
+                        tokio::spawn(async move {
+                            to_server(client_read, server_write, compress, encrypt).await;
+                        });
+                        tokio::spawn(async move {
+                            to_client(server_read, client_write, compress, encrypt).await;
+                        });
+                    } else {
+                        eprintln!("failed to connect to {}", to_addr);
+                    }
                 }
                 _ => eprintln!("Failed to get destination address"),
             }
@@ -53,18 +59,23 @@ pub fn run(local_addr: SocketAddr, compress: bool, encrypt: bool) -> Result<()> 
     })
 }
 
-async fn server(mut from_conn: TcpStream, mut to_conn: TcpStream, _compress: bool, _encrypt: bool) {
+async fn to_server(
+    mut read_conn: ReadHalf<TcpStream>,
+    mut write_conn: WriteHalf<TcpStream>,
+    _compress: bool,
+    _encrypt: bool,
+) {
     let mut buf = vec![0; 1024];
 
     loop {
         // echo client to server
-        match from_conn.read(&mut buf).await {
+        match read_conn.read(&mut buf).await {
             Ok(0) => {
                 println!("Client closed connection");
                 break;
             }
             Ok(n) => {
-                if let Err(_) = to_conn.write_all(&buf[..n]).await {
+                if let Err(_) = write_conn.write_all(&buf[..n]).await {
                     eprintln!("Error sending to server");
                     break;
                 }
@@ -74,15 +85,28 @@ async fn server(mut from_conn: TcpStream, mut to_conn: TcpStream, _compress: boo
                 break;
             }
         }
+    }
 
+    let _ = write_conn.shutdown().await;
+}
+
+async fn to_client(
+    mut read_conn: ReadHalf<TcpStream>,
+    mut write_conn: WriteHalf<TcpStream>,
+    _compress: bool,
+    _encrypt: bool,
+) {
+    let mut buf = vec![0; 1024];
+
+    loop {
         // echo server to client
-        match to_conn.read(&mut buf).await {
+        match read_conn.read(&mut buf).await {
             Ok(0) => {
                 println!("Server closed connection");
                 break;
             }
             Ok(n) => {
-                if let Err(_) = from_conn.write_all(&buf[..n]).await {
+                if let Err(_) = write_conn.write_all(&buf[..n]).await {
                     eprintln!("Error sending to client");
                     break;
                 }
@@ -93,4 +117,6 @@ async fn server(mut from_conn: TcpStream, mut to_conn: TcpStream, _compress: boo
             }
         }
     }
+
+    let _ = write_conn.shutdown().await;
 }

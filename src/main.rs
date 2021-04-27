@@ -36,29 +36,29 @@ mod errors {
 }
 use errors::*;
 
-use clap::{Arg, App, SubCommand, AppSettings};
+use clap::{App, AppSettings, Arg, SubCommand};
 use std::net::{IpAddr, SocketAddr};
 
 enum ServerSettings {
-    Forward { 
+    Forward {
         addr: SocketAddr,
     },
-    Reverse { 
+    Reverse {
         addr: SocketAddr,
         server_ips: Vec<SocketAddr>,
     },
 }
 
-const APP_NAME : &str = "Rust TLS Proxy";
-const ABOUT_STR : &str = "Project for network systems class to build a \
+const APP_NAME: &str = "Rust TLS Proxy";
+const ABOUT_STR: &str = "Project for network systems class to build a \
     transport TLS proxy in Rust to encrypt unencrypted messages";
 
-const FORWARD_PORT_HELP : &str = const_format::formatcp!(
-    "port number receiving intercepted client connections, default {}", 
+const FORWARD_PORT_HELP: &str = const_format::formatcp!(
+    "port number receiving intercepted client connections, default {}",
     forward_proxy::PROXY_REDIR_PORT
 );
 
-const REVERSE_PORT_HELP : &str = const_format::formatcp!(
+const REVERSE_PORT_HELP: &str = const_format::formatcp!(
     "port number receiving incoming connections, default {}",
     reverse_proxy::HTTPS_PORT
 );
@@ -67,34 +67,43 @@ fn run() -> Result<()> {
     let m = App::new(APP_NAME)
         .about(ABOUT_STR)
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .arg(Arg::with_name("compress")
-             .short("c")
-             .long("compress")
-             .help("enable compression"))
-        .arg(Arg::with_name("encrypt")
-             .short("e")
-             .long("encrypt")
-             .help("enable encryption"))
-        .subcommands( vec![ 
+        .arg(
+            Arg::with_name("compress")
+                .short("c")
+                .long("compress")
+                .help("enable compression"),
+        )
+        .arg(
+            Arg::with_name("encrypt")
+                .short("e")
+                .long("encrypt")
+                .help("enable encryption"),
+        )
+        .subcommands(vec![
             SubCommand::with_name("forward")
                 .about("start in foward proxy server mode")
-                .arg(Arg::with_name("port")
-                     .short("p")
-                     .long("port")
-                     .help(FORWARD_PORT_HELP)
-                     .takes_value(true)),
-
+                .arg(
+                    Arg::with_name("port")
+                        .short("p")
+                        .long("port")
+                        .help(FORWARD_PORT_HELP)
+                        .takes_value(true),
+                ),
             SubCommand::with_name("reverse")
                 .about("start in reverse proxy server mode")
-                .arg(Arg::with_name("port")
-                     .short("p")
-                     .long("port")
-                     .help(REVERSE_PORT_HELP)
-                     .takes_value(true))
-                .arg(Arg::with_name("SERVERS")
-                     .help("server addresses in format ip:port")
-                     .required(true)
-                     .multiple(true))
+                .arg(
+                    Arg::with_name("port")
+                        .short("p")
+                        .long("port")
+                        .help(REVERSE_PORT_HELP)
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("SERVERS")
+                        .help("server addresses in format ip:port")
+                        .required(true)
+                        .multiple(true),
+                ),
         ])
         .get_matches_safe()
         .chain_err(|| "error parsing arguments")?;
@@ -102,15 +111,14 @@ fn run() -> Result<()> {
     let compress = m.is_present("compress");
 
     let encrypt = m.is_present("encrypt");
-    
+
     let server = match m.subcommand() {
         ("forward", Some(sub_m)) => ServerSettings::Forward {
             addr: {
                 let port = match sub_m.value_of("port") {
-                    Some(p) => p.parse()
-                        .chain_err(
-                            || format!("error parsing port number \"{}\"", p)
-                        )?,
+                    Some(p) => p
+                        .parse()
+                        .chain_err(|| format!("error parsing port number \"{}\"", p))?,
                     None => forward_proxy::PROXY_REDIR_PORT,
                 };
 
@@ -121,10 +129,9 @@ fn run() -> Result<()> {
         ("reverse", Some(sub_m)) => ServerSettings::Reverse {
             addr: {
                 let port = match sub_m.value_of("port") {
-                    Some(p) => p.parse()
-                        .chain_err(
-                            || format!("error parsing port number \"{}\"", p)
-                        )?,
+                    Some(p) => p
+                        .parse()
+                        .chain_err(|| format!("error parsing port number \"{}\"", p))?,
                     None => reverse_proxy::HTTPS_PORT,
                 };
 
@@ -132,12 +139,11 @@ fn run() -> Result<()> {
             },
 
             server_ips: match sub_m.values_of("SERVERS") {
-                Some(addrs) => addrs.map(
-                    |a| a.parse::<SocketAddr>()
-                        .chain_err(
-                            || format!("error parsing socket address \"{}\"", a)
-                        )
-                    ) 
+                Some(addrs) => addrs
+                    .map(|a| {
+                        a.parse::<SocketAddr>()
+                            .chain_err(|| format!("error parsing socket address \"{}\"", a))
+                    })
                     .collect::<Result<_>>()?,
                 None => bail!("no server addreses"),
             },
@@ -147,21 +153,14 @@ fn run() -> Result<()> {
     };
 
     return match server {
-        ServerSettings::Forward{addr} => forward_proxy::run(
-            addr, 
-            compress, 
-            encrypt
-        )
-        .chain_err(|| "error in forward_proxy::run()"),
+        ServerSettings::Forward { addr } => forward_proxy::run(addr, compress, encrypt)
+            .chain_err(|| "error in forward_proxy::run()"),
 
-        ServerSettings::Reverse{addr, server_ips} => reverse_proxy::run(
-            addr,
-            server_ips, 
-            compress, 
-            encrypt
-        )
-        .chain_err(|| "error in reverse_proxy::run()"),
-    }
+        ServerSettings::Reverse { addr, server_ips } => {
+            reverse_proxy::run(addr, server_ips, compress, encrypt)
+                .chain_err(|| "error in reverse_proxy::run()")
+        }
+    };
 }
 
 fn main() {

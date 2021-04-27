@@ -7,8 +7,9 @@ import urllib.parse
 import forum_util as ut
 import ssl
 
-# using port numbers prepended with 9 to avoid calling sudo during test
-servport = 9090
+
+ser_ip = "" #default is localhost
+servport = 9090 # using port numbers prepended with 9 to avoid calling sudo during test
 posts_file = "./posts/posts.txt"
 default_cert = "localhost.pem"
 
@@ -81,7 +82,6 @@ class MyHandler(BaseHTTPRequestHandler):
             self.wfile.write(output_txt.encode('utf-8'))
         
 
-    # currently just act kinda like an echo server
     def do_POST(self):
         status = 200
         status_msg = "Ok"
@@ -126,9 +126,12 @@ class MyHandler(BaseHTTPRequestHandler):
 
 # https://stackoverflow.com/questions/19434947/python-respond-to-http-request
 # https://docs.python.org/3/library/http.server.html
-def startServer(port, mode, cert):
+def startServer(ip, port, mode, cert):
+    if mode == "HTTPS":
+        raise Exception("HTTPS server is not supported yet")
+    print("Starting {} server on port {} with bound ip {}".format(mode, port, ip))
     server_class = HTTPServer
-    httpd = server_class(("", port), MyHandler)
+    httpd = server_class((ip, port), MyHandler)
     if mode == "HTTPS":
         httpd.socket = ssl.wrap_socket(httpd.socket,
             server_side=True,
@@ -144,24 +147,34 @@ def startServer(port, mode, cert):
     return
 
 if __name__ == '__main__':
+    ip = ser_ip
     port = servport
     mode = "HTTP"
     cert = default_cert
     if len(sys.argv) > 1:
-        ip = "172.40.17.19" # server-router external-facing ip
         for i in range(len(sys.argv)-1):
             arg = sys.argv[i]
+            next_arg = sys.argv[i+1]
             if (arg == "--port"):
-                port = int(sys.argv[i+1])
+                port = int(next_arg)
             elif (arg == "--mode"):
-                mode = (sys.argv[i+1]).upper()
+                mode = next_arg.upper()
             elif (arg == "--cert"):
-                cert = sys.argv[i+1]
-    if mode == "HTTP":
-        print("Starting HTTP Server on port", port)
-        startServer(port, mode, cert)
-    elif mode == "HTTPS":
-        print("Starting HTTPS Server on port", port)
-        startServer(port, mode, cert)
+                cert = next_arg
+            elif (arg == "--bind-ip"):
+                if next_arg == "server":
+                    ip = "172.40.17.10"
+                elif next_arg == "server-proxy":
+                    ip = "172.40.17.19"
+                else:
+                    ip = next_arg
+    else:
+        print("Usage: python3 example_server.py " + 
+            "[--port num or default " + str(servport) + "] " +
+            "[--mode https or default http] " +
+            "[--cert location or default " + default_cert + "] " + 
+            "[--bind-ip server, server-proxy, or custom, default empty string] \n")
+    if mode == "HTTP" or mode == "HTTPS":
+        startServer(ip, port, mode, cert)
     else:
         raise Exception("Server mode {} is not supported.".format(mode))

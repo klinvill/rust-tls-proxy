@@ -5,6 +5,8 @@ import forum_util
 from requests.exceptions import HTTPError
 
 ser_port = 9090
+ser_ip = "172.40.17.19" # server-router external-facing ip
+# if you want direct connection to server (no server proxy), try 172.40.17.10
 
 class conn_info:
     def __init__(self, ip, port, mode, secure):
@@ -81,25 +83,32 @@ def client(conn):
 
 
 if __name__ == '__main__':
+    ip = ser_ip
     port = ser_port
     mode = "HTTP"
     secure = False
     if len(sys.argv) == 2:
         ip = sys.argv[1] # legacy implementation
+    elif len(sys.argv) == 1:
+        print("Usage: python3 example_client.py " +
+            "[--ip default server-proxy " + ser_ip + "] " +
+            "[--port default " + str(ser_port) + "] " +
+            "[--mode https or default http] \n")
     else:
-        ip = "172.40.17.19" # server-router external-facing ip
         for i in range(len(sys.argv)-1):
             arg = sys.argv[i]
-            if (arg == "--ip" and sys.argv[i+1] != "default"):
-                ip = sys.argv[i+1]
-            elif (arg == "--port" and sys.argv[i+1] != "default"):
-                port = int(sys.argv[i+1])
+            next_arg = sys.argv[i+1]
+            if (arg == "--ip"):
+                ip = next_arg
+            elif (arg == "--port"):
+                port = int(next_arg)
             elif (arg == "--mode"):
-                mode = (sys.argv[i+1]).upper()
+                mode = next_arg.upper()
         
     if mode == "HTTP":
         print("Starting HTTP client on port {}".format(port))
     elif mode == "HTTPS":
+        raise Exception("HTTPS client is not supported yet")
         print("Starting HTTPS client on port {}".format(port))
         tf = input("\nDo you want to require certificate verification? (T/F) ")
         secure = not (tf.upper() == "F") # default to true for unrecognized input, otherwise set False

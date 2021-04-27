@@ -1,5 +1,6 @@
-use std::io::prelude::*;
+mod clients;
+mod header;
+mod scheme;
 
-mod client;
-
-pub type Client<W> = client::Client<W>;
+pub type Compressor<W> = clients::Compressor<W>;
+pub type Decompressor<W> = clients::Decompressor<W>;

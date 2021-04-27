@@ -24,5 +24,4 @@ fn main() {
     //          - If data received from client, read the data using read_tls() and then read(), then send to server (assuming rustls)
     //          - If data received from server, send to client using write() and then write_tls() (assuming rustls)
     //              - Optionally compress data before sending
-
 }

@@ -22,6 +22,7 @@
 //          - If data received from server, send to client using write() and then write_tls() (assuming rustls)
 //              - Optionally compress data before sending
 
+mod compression;
 mod forward_proxy;
 mod reverse_proxy;
 

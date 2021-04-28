@@ -1,5 +1,7 @@
+use crate::compression::Compressor;
 use crate::errors::*;
 use nix::sys::socket;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::os::unix::io::AsRawFd;
 use tokio::io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
@@ -62,7 +64,7 @@ pub fn run(local_addr: SocketAddr, compress: bool, encrypt: bool) -> Result<()> 
 async fn proxy_conn(
     mut read_conn: ReadHalf<TcpStream>,
     mut write_conn: WriteHalf<TcpStream>,
-    _compress: bool,
+    compress: bool,
     _encrypt: bool,
 ) {
     let mut buf = vec![0; 1024];
@@ -75,7 +77,35 @@ async fn proxy_conn(
                 break;
             }
             Ok(n) => {
-                if let Err(_) = write_conn.write_all(&buf[..n]).await {
+                // TODO: cleanup match statements
+                let comp_buf = match compress {
+                    true => {
+                        let compressed_buf = Vec::new();
+                        let mut comp = Compressor::new(compressed_buf);
+                        match comp.write_all(&buf[..n]) {
+                            Err(e) => {
+                                eprintln!("Compression error: {}", e.to_string());
+                                break;
+                            }
+                            _ => (),
+                        };
+                        match comp.finish() {
+                            Ok(comp_buf) => comp_buf,
+                            Err(e) => {
+                                eprintln!("Compression error: {}", e.to_string());
+                                break;
+                            }
+                        }
+                    }
+                    _ => vec![],
+                };
+
+                let write_buffer = match compress {
+                    true => &comp_buf,
+                    false => &buf[..n],
+                };
+
+                if let Err(_) = write_conn.write_all(write_buffer).await {
                     eprintln!("Error sending to write connection");
                     break;
                 }
@@ -92,7 +122,9 @@ async fn proxy_conn(
 
 #[cfg(test)]
 mod tests {
+    use crate::compression::Compressor;
     use crate::forward_proxy::proxy_conn;
+    use std::io::Write;
     use tokio;
     use tokio::io::{split, AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
@@ -144,5 +176,23 @@ mod tests {
         test_proxy.writer.read_to_end(&mut received).await.unwrap();
 
         assert_eq!(received, message);
+    }
+
+    #[tokio::test]
+    async fn proxy_compressed_content() {
+        let message = "Hello world! This is message should be proxied and compressed.".as_bytes();
+        let mut received = Vec::new();
+
+        let mut test_proxy = setup_proxy(true, false).await;
+
+        test_proxy.reader.write_all(&message).await.unwrap();
+        test_proxy.reader.shutdown().await.unwrap();
+        test_proxy.writer.read_to_end(&mut received).await.unwrap();
+
+        let expected_message = Vec::new();
+        let mut ref_compressor = Compressor::new(expected_message);
+        ref_compressor.write_all(&message).unwrap();
+
+        assert_eq!(received, ref_compressor.finish().unwrap());
     }
 }

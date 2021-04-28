@@ -42,10 +42,14 @@ use std::net::{IpAddr, SocketAddr};
 enum ServerSettings {
     Forward {
         addr: SocketAddr,
+        compress: bool,
+        encrypt: bool,
     },
     Reverse {
         addr: SocketAddr,
         server_ips: Vec<SocketAddr>,
+        compress: bool,
+        encrypt: bool,
     },
 }
 
@@ -67,18 +71,6 @@ fn run() -> Result<()> {
     let m = App::new(APP_NAME)
         .about(ABOUT_STR)
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .arg(
-            Arg::with_name("compress")
-                .short("c")
-                .long("compress")
-                .help("enable compression"),
-        )
-        .arg(
-            Arg::with_name("encrypt")
-                .short("e")
-                .long("encrypt")
-                .help("enable encryption"),
-        )
         .subcommands(vec![
             SubCommand::with_name("forward")
                 .about("start in foward proxy server mode")
@@ -88,6 +80,18 @@ fn run() -> Result<()> {
                         .long("port")
                         .help(FORWARD_PORT_HELP)
                         .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("compress")
+                        .short("c")
+                        .long("compress")
+                        .help("enable compression"),
+                )
+                .arg(
+                    Arg::with_name("encrypt")
+                        .short("e")
+                        .long("encrypt")
+                        .help("enable encryption"),
                 ),
             SubCommand::with_name("reverse")
                 .about("start in reverse proxy server mode")
@@ -103,14 +107,22 @@ fn run() -> Result<()> {
                         .help("server addresses in format ip:port")
                         .required(true)
                         .multiple(true),
+                )
+                .arg(
+                    Arg::with_name("compress")
+                        .short("c")
+                        .long("compress")
+                        .help("enable compression"),
+                )
+                .arg(
+                    Arg::with_name("encrypt")
+                        .short("e")
+                        .long("encrypt")
+                        .help("enable encryption"),
                 ),
         ])
         .get_matches_safe()
         .chain_err(|| "error parsing arguments")?;
-
-    let compress = m.is_present("compress");
-
-    let encrypt = m.is_present("encrypt");
 
     let server = match m.subcommand() {
         ("forward", Some(sub_m)) => ServerSettings::Forward {
@@ -124,6 +136,8 @@ fn run() -> Result<()> {
 
                 SocketAddr::from((IpAddr::from([0, 0, 0, 0]), port))
             },
+            compress: sub_m.is_present("compress"),
+            encrypt: sub_m.is_present("encrypt"),
         },
 
         ("reverse", Some(sub_m)) => ServerSettings::Reverse {
@@ -147,19 +161,28 @@ fn run() -> Result<()> {
                     .collect::<Result<_>>()?,
                 None => bail!("no server addreses"),
             },
+            compress: sub_m.is_present("compress"),
+            encrypt: sub_m.is_present("encrypt"),
         },
 
         _ => bail!("unknown subcommand"),
     };
 
     return match server {
-        ServerSettings::Forward { addr } => forward_proxy::run(addr, compress, encrypt)
+        ServerSettings::Forward {
+            addr,
+            compress,
+            encrypt,
+        } => forward_proxy::run(addr, compress, encrypt)
             .chain_err(|| "error in forward_proxy::run()"),
 
-        ServerSettings::Reverse { addr, server_ips } => {
-            reverse_proxy::run(addr, server_ips, compress, encrypt)
-                .chain_err(|| "error in reverse_proxy::run()")
-        }
+        ServerSettings::Reverse {
+            addr,
+            server_ips,
+            compress,
+            encrypt,
+        } => reverse_proxy::run(addr, server_ips, compress, encrypt)
+            .chain_err(|| "error in reverse_proxy::run()"),
     };
 }
 

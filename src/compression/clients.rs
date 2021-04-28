@@ -226,7 +226,7 @@ mod tests {
         let decompressed_result = reference_dec.get_ref();
 
         assert!(result.len() > 0);
-        assert_eq!(decompressed_result, message);
+        assert_eq!(decompressed_result.as_slice(), message);
     }
 
     #[test]
@@ -287,6 +287,6 @@ mod tests {
         let result = writer.get_ref().get_ref();
 
         assert!(result.len() > 0);
-        assert_eq!(result, message);
+        assert_eq!(result.as_slice(), message);
     }
 }

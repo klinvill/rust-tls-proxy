@@ -24,6 +24,7 @@
 
 mod forward_proxy;
 mod reverse_proxy;
+mod compression;
 
 use error_chain::bail;
 use error_chain::ChainedError;

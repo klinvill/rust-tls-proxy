@@ -41,10 +41,10 @@ pub fn run(
                 let (server_read, server_write) = split::<TcpStream>(to_conn);
 
                 tokio::spawn(async move {
-                    to_server(client_read, server_write, compress, encrypt).await;
+                    proxy_conn(client_read, server_write, compress, encrypt).await;
                 });
                 tokio::spawn(async move {
-                    to_client(server_read, client_write, compress, encrypt).await;
+                    proxy_conn(server_read, client_write, compress, encrypt).await;
                 });
             } else {
                 eprintln!("failed to connect to {}", to_addr);
@@ -53,7 +53,7 @@ pub fn run(
     })
 }
 
-async fn to_server(
+async fn proxy_conn(
     mut read_conn: ReadHalf<TcpStream>,
     mut write_conn: WriteHalf<TcpStream>,
     _compress: bool,
@@ -65,12 +65,12 @@ async fn to_server(
         // echo client to server
         match read_conn.read(&mut buf).await {
             Ok(0) => {
-                println!("Client closed connection");
+                println!("Read connection closed");
                 break;
             }
             Ok(n) => {
                 if let Err(_) = write_conn.write_all(&buf[..n]).await {
-                    eprintln!("Error sending to server");
+                    eprintln!("Error sending to write connection");
                     break;
                 }
             }
@@ -84,33 +84,59 @@ async fn to_server(
     let _ = write_conn.shutdown().await;
 }
 
-async fn to_client(
-    mut read_conn: ReadHalf<TcpStream>,
-    mut write_conn: WriteHalf<TcpStream>,
-    _compress: bool,
-    _encrypt: bool,
-) {
-    let mut buf = vec![0; 1024];
+#[cfg(test)]
+mod tests {
+    use crate::reverse_proxy::proxy_conn;
+    use tokio;
+    use tokio::io::{split, AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
 
-    loop {
-        // echo server to client
-        match read_conn.read(&mut buf).await {
-            Ok(0) => {
-                println!("Server closed connection");
-                break;
-            }
-            Ok(n) => {
-                if let Err(_) = write_conn.write_all(&buf[..n]).await {
-                    eprintln!("Error sending to client");
-                    break;
-                }
-            }
-            Err(_) => {
-                eprintln!("Socket error");
-                break;
-            }
+    struct TestProxy {
+        reader: TcpStream,
+        writer: TcpStream,
+    }
+
+    /// Helper function to create proxied tcp connections. Returns a tuple of the connections to
+    /// write to the proxy and read from the proxy respectively
+    async fn setup_proxy(compress: bool, encrypt: bool) -> TestProxy {
+        let in_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+
+        let out_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+
+        let in_send_conn = TcpStream::connect(in_listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (in_recv_conn, _) = in_listener.accept().await.unwrap();
+
+        let out_send_conn = TcpStream::connect(out_listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (out_recv_conn, _) = out_listener.accept().await.unwrap();
+
+        let (in_recv_read, _) = split::<TcpStream>(in_recv_conn);
+        let (_, out_send_write) = split::<TcpStream>(out_send_conn);
+
+        tokio::spawn(async move {
+            proxy_conn(in_recv_read, out_send_write, compress, encrypt).await;
+        });
+
+        TestProxy {
+            reader: in_send_conn,
+            writer: out_recv_conn,
         }
     }
 
-    let _ = write_conn.shutdown().await;
+    #[tokio::test]
+    async fn proxy_content() {
+        let message = "Hello world! This is message should be proxied.".as_bytes();
+        let mut received = Vec::new();
+
+        let mut test_proxy = setup_proxy(false, false).await;
+
+        test_proxy.reader.write_all(&message).await.unwrap();
+        test_proxy.reader.shutdown().await.unwrap();
+        test_proxy.writer.read_to_end(&mut received).await.unwrap();
+
+        assert_eq!(received, message);
+    }
 }

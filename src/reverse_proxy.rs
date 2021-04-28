@@ -77,7 +77,9 @@ fn to_server(mut read_conn: impl Read, write_conn: impl Write, compress: bool, _
                 break;
             }
             Ok(n) => {
-                if let Err(_) = writer.write_all(&buf[..n]) {
+                println!("From client: {:?}", &buf[..n]);
+                let _ = writer.write_all(&buf[..n]);
+                if let Err(_) = writer.flush() {
                     eprintln!("Error sending to server");
                     break;
                 }
@@ -105,7 +107,9 @@ fn to_client(mut read_conn: impl Read, write_conn: impl Write, compress: bool, _
                 break;
             }
             Ok(n) => {
-                if let Err(_) = writer.write_all(&buf[..n]) {
+                println!("From server: {:?}", &buf[..n]);
+                let _ = writer.write_all(&buf[..n]);
+                if let Err(_) = writer.flush() {
                     eprintln!("Error sending to client");
                     break;
                 }

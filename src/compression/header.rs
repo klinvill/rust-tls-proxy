@@ -12,7 +12,7 @@ pub struct Header {
 
 // TODO: what should the magic value be? How many bytes should it be?
 /// Magic value that indicates this is the start of a compression Header record
-const HEADER_MAGIC_VALUE: u16 = 0xbeef;
+pub const HEADER_MAGIC_VALUE: u16 = 0xbeef;
 
 impl Header {
     pub fn new(scheme: Scheme) -> Header {

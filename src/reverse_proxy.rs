@@ -1,4 +1,4 @@
-use crate::compression::Decompressor;
+use crate::compression::{split_frames, Decompressor};
 use crate::errors::*;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -78,24 +78,18 @@ async fn proxy_conn(
                 break;
             }
             Ok(n) => {
-                // TODO: cleanup match statements
                 let decomp_buf = match compress {
                     true => {
-                        let mut decomp = Decompressor::new(Vec::new());
-                        match decomp.write_all(&buf[..n]) {
-                            Err(e) => {
-                                eprintln!("Decompression error: {}", e.to_string());
-                                break;
-                            }
-                            _ => (),
-                        };
-                        match decomp.finish() {
-                            Ok(decomp_buf) => decomp_buf,
-                            Err(e) => {
-                                eprintln!("Decompression error: {}", e.to_string());
-                                break;
-                            }
-                        }
+                        // TODO: add graceful error handling
+                        let decomp_frames = split_frames(&buf[..n]);
+                        decomp_frames
+                            .iter()
+                            .flat_map(|frame| {
+                                let mut decomp = Decompressor::new(Vec::new());
+                                decomp.write_all(frame).expect("Decompression error");
+                                decomp.finish().expect("Decompression error")
+                            })
+                            .collect()
                     }
                     _ => vec![],
                 };
@@ -195,6 +189,38 @@ mod tests {
             .write_all(&compressed_message)
             .await
             .unwrap();
+        test_proxy.reader.shutdown().await.unwrap();
+        test_proxy.writer.read_to_end(&mut received).await.unwrap();
+
+        assert_eq!(received, message);
+    }
+
+    #[tokio::test]
+    async fn proxy_large_decompressed_content() {
+        // ~2kB message
+        let message = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nullam risus metus, vulputate sed erat non, maximus accumsan augue. Ut eu aliquet urna, sed mollis lectus. Vivamus eu egestas lectus. Donec commodo diam vehicula nisl iaculis, at scelerisque est efficitur. Pellentesque sed dolor arcu. Nullam semper quam risus, quis lobortis sapien mollis vitae. Fusce egestas ante nisl, ac bibendum mi faucibus ac. Phasellus eu libero orci. Cras dignissim in nibh quis eleifend. Duis mattis fermentum nulla ac aliquet. Cras et orci quis erat fermentum auctor et in mauris. Ut ornare, elit a blandit imperdiet, nibh sapien dapibus sapien, non faucibus diam arcu fermentum nunc. Proin feugiat pharetra lectus vitae semper. Fusce sit amet tortor mattis, hendrerit ex nec, iaculis risus.
+
+Nam est nibh, semper sit amet gravida eu, efficitur in tortor. Aenean vel leo vitae enim scelerisque porta at et nibh. Nulla malesuada vel ipsum placerat varius. Aliquam facilisis, dolor quis ultrices condimentum, nisl metus consequat purus, non vulputate odio odio at justo. Fusce rhoncus neque arcu, et venenatis lacus vestibulum at. Nullam tristique tincidunt nunc. Ut mollis sem non turpis accumsan, et volutpat quam suscipit. Cras metus libero, commodo vitae purus vulputate, scelerisque molestie mi. Etiam posuere orci id turpis suscipit egestas. Nunc id faucibus risus.
+
+Duis quis neque sit amet turpis ullamcorper pretium a et turpis. In ultrices eros sit amet odio venenatis varius. Vestibulum id sem iaculis dolor ornare egestas eu sit amet nunc. Integer elit lorem, pretium vestibulum euismod in, imperdiet porttitor nisl. In accumsan elit non rutrum euismod. Integer turpis sem, lobortis non laoreet id, mattis at metus. Sed hendrerit volutpat dui ut consectetur.
+
+Duis efficitur, lacus a condimentum rhoncus, justo ex tristique neque, fermentum imperdiet tortor ex a ante. Mauris a tortor nec sapien volutpat porttitor. Praesent purus erat, viverra sed rhoncus eget, sodales ac felis. Integer scelerisque leo gravida.".as_bytes();
+
+        // Currently the forward proxy separates messages into chunks of at most 1024 bytes
+        // TODO: make this maintainable by removing hardcoded values
+        let compressed_messages = message.chunks(1024).map(|chunk| {
+            let mut ref_compressor = Compressor::new(Vec::new());
+            ref_compressor.write_all(chunk).unwrap();
+            ref_compressor.finish().unwrap()
+        });
+
+        let mut received = Vec::new();
+
+        let mut test_proxy = setup_proxy(true, false).await;
+
+        for msg in compressed_messages {
+            test_proxy.reader.write_all(&msg).await.unwrap();
+        }
         test_proxy.reader.shutdown().await.unwrap();
         test_proxy.writer.read_to_end(&mut received).await.unwrap();
 

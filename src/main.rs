@@ -22,20 +22,12 @@
 //          - If data received from server, send to client using write() and then write_tls() (assuming rustls)
 //              - Optionally compress data before sending
 
-mod compression;
-mod forward_proxy;
-mod reverse_proxy;
 
 use error_chain::bail;
 use error_chain::ChainedError;
-mod errors {
-    error_chain::error_chain! {
-        foreign_links {
-            NixError(nix::Error);
-        }
-    }
-}
-use errors::*;
+use rust_tls_proxy::errors::*;
+
+use rust_tls_proxy::{forward_proxy, reverse_proxy};
 
 use clap::{App, AppSettings, Arg, SubCommand};
 use std::net::{IpAddr, SocketAddr};

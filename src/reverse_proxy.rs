@@ -15,44 +15,51 @@ pub fn run(
 ) -> Result<()> {
     let rt = tokio::runtime::Runtime::new().chain_err(|| "failed to create tokio runtime")?;
 
-    rt.block_on(async {
-        let mut server_carousel = server_ips.iter().cycle();
+    rt.block_on(run_async(local_addr, server_ips, compress, encrypt))
+}
 
-        println!("opening listener socket on {}", local_addr);
+pub async fn run_async(
+    local_addr: SocketAddr,
+    server_ips: Vec<SocketAddr>,
+    compress: bool,
+    encrypt: bool,
+) -> Result<()> {
+    let mut server_carousel = server_ips.iter().cycle();
 
-        let listen_socket = TcpListener::bind(local_addr)
+    println!("opening listener socket on {}", local_addr);
+
+    let listen_socket = TcpListener::bind(local_addr)
+        .await
+        .chain_err(|| format!("error opening listener socket on {}", local_addr))?;
+
+    loop {
+        let (from_conn, from_addr) = listen_socket
+            .accept()
             .await
-            .chain_err(|| format!("error opening listener socket on {}", local_addr))?;
+            .chain_err(|| format!("error accepting connection"))?;
+        println!("connection received from {}", from_addr);
 
-        loop {
-            let (from_conn, from_addr) = listen_socket
-                .accept()
-                .await
-                .chain_err(|| format!("error accepting connection"))?;
-            println!("connection received from {}", from_addr);
+        let to_addr = server_carousel
+            .next()
+            .chain_err(|| "server carousel failed to provide server addr")?
+            .clone();
 
-            let to_addr = server_carousel
-                .next()
-                .chain_err(|| "server carousel failed to provide server addr")?
-                .clone();
+        if let Ok(to_conn) = TcpStream::connect(to_addr).await {
+            println!("connection opened to {}", to_addr);
 
-            if let Ok(to_conn) = TcpStream::connect(to_addr).await {
-                println!("connection opened to {}", to_addr);
+            let (client_read, client_write) = split::<TcpStream>(from_conn);
+            let (server_read, server_write) = split::<TcpStream>(to_conn);
 
-                let (client_read, client_write) = split::<TcpStream>(from_conn);
-                let (server_read, server_write) = split::<TcpStream>(to_conn);
-
-                tokio::spawn(async move {
-                    proxy_conn(client_read, server_write, compress, encrypt).await;
-                });
-                tokio::spawn(async move {
-                    proxy_conn(server_read, client_write, compress, encrypt).await;
-                });
-            } else {
-                eprintln!("failed to connect to {}", to_addr);
-            }
+            tokio::spawn(async move {
+                proxy_conn(client_read, server_write, compress, encrypt).await;
+            });
+            tokio::spawn(async move {
+                proxy_conn(server_read, client_write, compress, encrypt).await;
+            });
+        } else {
+            eprintln!("failed to connect to {}", to_addr);
         }
-    })
+    }
 }
 
 async fn proxy_conn(

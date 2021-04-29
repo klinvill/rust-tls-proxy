@@ -13,52 +13,60 @@ pub const PROXY_REDIR_PORT: u16 = 8080;
 
 pub fn run(local_addr: SocketAddr, compress: bool, encrypt: bool) -> Result<()> {
     let rt = tokio::runtime::Runtime::new().chain_err(|| "failed to create tokio runtime")?;
+    rt.block_on(run_async(local_addr, compress, encrypt))
+}
 
-    rt.block_on(async {
-        println!("opening listener socket on {}", local_addr);
-        let listen_socket = TcpListener::bind(local_addr)
+pub async fn run_async (local_addr: SocketAddr, compress: bool, encrypt: bool) -> Result<()> {
+    println!("opening listener socket on {}", local_addr);
+    let listen_socket = TcpListener::bind(local_addr)
+        .await
+        .chain_err(|| format!("error opening listener socket on {}", local_addr))?;
+
+    socket::setsockopt(
+        listen_socket.as_raw_fd(),
+        socket::sockopt::IpTransparent,
+        &true,
+    )?;
+
+    forward_proxy(listen_socket, compress, encrypt).await
+}
+
+/// Note: this function allows for a custom TcpListener to be provided. Most users will either want
+/// to call run() or run_async() which sets the IP_TRANSPARENT option for the socket. This function
+/// is primarily useful for testing without the IP_TRANSPARENT option.
+pub async fn forward_proxy(listen_socket: TcpListener, compress: bool, encrypt: bool) -> Result<()> {
+    loop {
+        let (from_conn, from_addr) = listen_socket
+            .accept()
             .await
-            .chain_err(|| format!("error opening listener socket on {}", local_addr))?;
+            .chain_err(|| format!("error accepting connection"))?;
+        println!("connection received from {}", from_addr);
 
-        socket::setsockopt(
-            listen_socket.as_raw_fd(),
-            socket::sockopt::IpTransparent,
-            &true,
-        )?;
+        match socket::getsockname(from_conn.as_raw_fd()) {
+            Ok(socket::SockAddr::Inet(inet_addr)) => {
+                println!("connection destined to {}", inet_addr);
 
-        loop {
-            let (from_conn, from_addr) = listen_socket
-                .accept()
-                .await
-                .chain_err(|| format!("error accepting connection"))?;
-            println!("connection received from {}", from_addr);
+                let to_addr =
+                    SocketAddr::new(inet_addr.ip().to_std(), reverse_proxy::HTTPS_PORT);
 
-            match socket::getsockname(from_conn.as_raw_fd()) {
-                Ok(socket::SockAddr::Inet(inet_addr)) => {
-                    println!("connection destined to {}", inet_addr);
+                if let Ok(to_conn) = TcpStream::connect(to_addr).await {
+                    println!("connection opened to {}", to_addr);
+                    let (client_read, client_write) = split::<TcpStream>(from_conn);
+                    let (server_read, server_write) = split::<TcpStream>(to_conn);
 
-                    let to_addr =
-                        SocketAddr::new(inet_addr.ip().to_std(), reverse_proxy::HTTPS_PORT);
-
-                    if let Ok(to_conn) = TcpStream::connect(to_addr).await {
-                        println!("connection opened to {}", to_addr);
-                        let (client_read, client_write) = split::<TcpStream>(from_conn);
-                        let (server_read, server_write) = split::<TcpStream>(to_conn);
-
-                        tokio::spawn(async move {
-                            proxy_conn(client_read, server_write, compress, encrypt).await;
-                        });
-                        tokio::spawn(async move {
-                            proxy_conn(server_read, client_write, compress, encrypt).await;
-                        });
-                    } else {
-                        eprintln!("failed to connect to {}", to_addr);
-                    }
+                    tokio::spawn(async move {
+                        proxy_conn(client_read, server_write, compress, encrypt).await;
+                    });
+                    tokio::spawn(async move {
+                        proxy_conn(server_read, client_write, compress, encrypt).await;
+                    });
+                } else {
+                    eprintln!("failed to connect to {}", to_addr);
                 }
-                _ => eprintln!("Failed to get destination address"),
             }
+            _ => eprintln!("Failed to get destination address"),
         }
-    })
+    }
 }
 
 async fn proxy_conn(

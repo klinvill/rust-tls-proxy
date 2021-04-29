@@ -1,4 +1,4 @@
-mod compression;
+pub mod compression;
 pub mod forward_proxy;
 pub mod reverse_proxy;
 

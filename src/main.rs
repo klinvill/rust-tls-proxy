@@ -22,7 +22,6 @@
 //          - If data received from server, send to client using write() and then write_tls() (assuming rustls)
 //              - Optionally compress data before sending
 
-
 use error_chain::bail;
 use error_chain::ChainedError;
 use rust_tls_proxy::errors::*;

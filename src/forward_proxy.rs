@@ -16,7 +16,7 @@ pub fn run(local_addr: SocketAddr, compress: bool, encrypt: bool) -> Result<()> 
     rt.block_on(run_async(local_addr, compress, encrypt))
 }
 
-pub async fn run_async (local_addr: SocketAddr, compress: bool, encrypt: bool) -> Result<()> {
+pub async fn run_async(local_addr: SocketAddr, compress: bool, encrypt: bool) -> Result<()> {
     println!("opening listener socket on {}", local_addr);
     let listen_socket = TcpListener::bind(local_addr)
         .await
@@ -34,7 +34,11 @@ pub async fn run_async (local_addr: SocketAddr, compress: bool, encrypt: bool) -
 /// Note: this function allows for a custom TcpListener to be provided. Most users will either want
 /// to call run() or run_async() which sets the IP_TRANSPARENT option for the socket. This function
 /// is primarily useful for testing without the IP_TRANSPARENT option.
-pub async fn forward_proxy(listen_socket: TcpListener, compress: bool, encrypt: bool) -> Result<()> {
+pub async fn forward_proxy(
+    listen_socket: TcpListener,
+    compress: bool,
+    encrypt: bool,
+) -> Result<()> {
     loop {
         let (from_conn, from_addr) = listen_socket
             .accept()
@@ -46,8 +50,7 @@ pub async fn forward_proxy(listen_socket: TcpListener, compress: bool, encrypt: 
             Ok(socket::SockAddr::Inet(inet_addr)) => {
                 println!("connection destined to {}", inet_addr);
 
-                let to_addr =
-                    SocketAddr::new(inet_addr.ip().to_std(), reverse_proxy::HTTPS_PORT);
+                let to_addr = SocketAddr::new(inet_addr.ip().to_std(), reverse_proxy::HTTPS_PORT);
 
                 if let Ok(to_conn) = TcpStream::connect(to_addr).await {
                     println!("connection opened to {}", to_addr);

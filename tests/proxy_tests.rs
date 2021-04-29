@@ -1,12 +1,12 @@
 use tokio;
-use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 
-use rust_tls_proxy::{forward_proxy, reverse_proxy};
 use rust_tls_proxy::compression::Compressor;
+use rust_tls_proxy::{forward_proxy, reverse_proxy};
+use std::io::Write;
 use std::net::SocketAddr;
 use std::time::Duration;
-use std::io::Write;
 
 #[tokio::test]
 async fn transparent_proxy() {
@@ -21,11 +21,15 @@ async fn transparent_proxy() {
     let forward_proxy_listener = TcpListener::bind(forward_in_addr).await.unwrap();
 
     tokio::spawn(async move {
-        reverse_proxy::run_async(reverse_in_addr, vec![reverse_out_addr], false, false).await.unwrap();
+        reverse_proxy::run_async(reverse_in_addr, vec![reverse_out_addr], false, false)
+            .await
+            .unwrap();
     });
 
     tokio::spawn(async move {
-        forward_proxy::forward_proxy(forward_proxy_listener, false, false).await.unwrap();
+        forward_proxy::forward_proxy(forward_proxy_listener, false, false)
+            .await
+            .unwrap();
     });
 
     let mut in_send_conn = TcpStream::connect(forward_in_addr).await.unwrap();
@@ -65,11 +69,15 @@ async fn transparent_compression_proxy() {
     let forward_out_listener = TcpListener::bind(forward_out_addr).await.unwrap();
 
     tokio::spawn(async move {
-        reverse_proxy::run_async(reverse_in_addr, vec![reverse_out_addr], true, false).await.unwrap();
+        reverse_proxy::run_async(reverse_in_addr, vec![reverse_out_addr], true, false)
+            .await
+            .unwrap();
     });
 
     tokio::spawn(async move {
-        forward_proxy::forward_proxy(forward_proxy_listener, true, false).await.unwrap();
+        forward_proxy::forward_proxy(forward_proxy_listener, true, false)
+            .await
+            .unwrap();
     });
 
     let mut in_send_conn = TcpStream::connect(forward_in_addr).await.unwrap();
@@ -80,7 +88,10 @@ async fn transparent_compression_proxy() {
     let (mut forward_out_conn, _) = forward_out_listener.accept().await.unwrap();
     write_fut.await.unwrap();
     in_send_conn.shutdown().await.unwrap();
-    forward_out_conn.read_to_end(&mut forward_out_sent).await.unwrap();
+    forward_out_conn
+        .read_to_end(&mut forward_out_sent)
+        .await
+        .unwrap();
 
     assert_eq!(forward_out_sent, compressed_message);
 

@@ -13,6 +13,7 @@ tokio-stream = { version = "0.1" }
 flate2 = {version = "1.0.20", features = ["tokio"]}
 num-traits = "0.2.14"
 num-derive = "0.3.3"
+tokio-rustls = "0.22.0"
 
 clap = "2"
 const_format = "0.2"

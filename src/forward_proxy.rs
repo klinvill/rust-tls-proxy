@@ -4,12 +4,63 @@ use nix::sys::socket;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::os::unix::io::AsRawFd;
-use tokio::io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::io::{
+    split, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf, ReadHalf, WriteHalf,
+};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_rustls::{client::TlsStream, rustls::ClientConfig, webpki::DNSNameRef, TlsConnector};
 
 use crate::reverse_proxy;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 
 pub const PROXY_REDIR_PORT: u16 = 8080;
+
+enum IoStream {
+    TcpStream(TcpStream),
+    TlsStream(TlsStream<TcpStream>),
+}
+
+impl AsyncRead for IoStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            IoStream::TcpStream(stream) => Pin::new(stream).poll_read(cx, buf),
+            IoStream::TlsStream(stream) => Pin::new(stream).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for IoStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            IoStream::TcpStream(stream) => Pin::new(stream).poll_write(cx, buf),
+            IoStream::TlsStream(stream) => Pin::new(stream).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            IoStream::TcpStream(stream) => Pin::new(stream).poll_flush(cx),
+            IoStream::TlsStream(stream) => Pin::new(stream).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            IoStream::TcpStream(stream) => Pin::new(stream).poll_shutdown(cx),
+            IoStream::TlsStream(stream) => Pin::new(stream).poll_shutdown(cx),
+        }
+    }
+}
 
 pub fn run(local_addr: SocketAddr, compress: bool, encrypt: bool) -> Result<()> {
     let rt = tokio::runtime::Runtime::new().chain_err(|| "failed to create tokio runtime")?;
@@ -39,6 +90,8 @@ pub async fn forward_proxy(
     compress: bool,
     encrypt: bool,
 ) -> Result<()> {
+    let tls_config = ClientConfig::new();
+    let tls_config_ref = Arc::new(tls_config);
     loop {
         let (from_conn, from_addr) = listen_socket
             .accept()
@@ -52,20 +105,27 @@ pub async fn forward_proxy(
 
                 let to_addr = SocketAddr::new(inet_addr.ip().to_std(), reverse_proxy::HTTPS_PORT);
 
-                if let Ok(to_conn) = TcpStream::connect(to_addr).await {
-                    println!("connection opened to {}", to_addr);
-                    let (client_read, client_write) = split::<TcpStream>(from_conn);
-                    let (server_read, server_write) = split::<TcpStream>(to_conn);
+                let to_tcp_conn = TcpStream::connect(to_addr).await?;
+                let to_conn = match encrypt {
+                    false => IoStream::TcpStream(to_tcp_conn),
+                    true => {
+                        let string_dnsname = inet_addr.to_str();
+                        let dnsname = DNSNameRef::try_from_ascii_str(&string_dnsname)?;
+                        let connector = TlsConnector::from(Arc::clone(&tls_config_ref));
+                        IoStream::TlsStream(connector.connect(dnsname, to_tcp_conn).await?)
+                    }
+                };
 
-                    tokio::spawn(async move {
-                        proxy_conn(client_read, server_write, compress, encrypt).await;
-                    });
-                    tokio::spawn(async move {
-                        proxy_conn(server_read, client_write, compress, encrypt).await;
-                    });
-                } else {
-                    eprintln!("failed to connect to {}", to_addr);
-                }
+                println!("connection opened to {}", to_addr);
+                let (client_read, client_write) = split::<IoStream>(IoStream::TcpStream(from_conn));
+                let (server_read, server_write) = split::<IoStream>(to_conn);
+
+                tokio::spawn(async move {
+                    proxy_conn(client_read, server_write, compress).await;
+                });
+                tokio::spawn(async move {
+                    proxy_conn(server_read, client_write, compress).await;
+                });
             }
             _ => eprintln!("Failed to get destination address"),
         }
@@ -73,10 +133,9 @@ pub async fn forward_proxy(
 }
 
 async fn proxy_conn(
-    mut read_conn: ReadHalf<TcpStream>,
-    mut write_conn: WriteHalf<TcpStream>,
+    mut read_conn: ReadHalf<IoStream>,
+    mut write_conn: WriteHalf<IoStream>,
     compress: bool,
-    _encrypt: bool,
 ) {
     let mut buf = vec![0; 1024];
 
@@ -134,7 +193,7 @@ async fn proxy_conn(
 #[cfg(test)]
 mod tests {
     use crate::compression::{split_frames, Compressor, Decompressor};
-    use crate::forward_proxy::proxy_conn;
+    use crate::forward_proxy::{proxy_conn, IoStream};
     use std::io::Write;
     use tokio;
     use tokio::io::{split, AsyncReadExt, AsyncWriteExt};
@@ -162,11 +221,11 @@ mod tests {
             .unwrap();
         let (out_recv_conn, _) = out_listener.accept().await.unwrap();
 
-        let (in_recv_read, _) = split::<TcpStream>(in_recv_conn);
-        let (_, out_send_write) = split::<TcpStream>(out_send_conn);
+        let (in_recv_read, _) = split::<IoStream>(IoStream::TcpStream(in_recv_conn));
+        let (_, out_send_write) = split::<IoStream>(IoStream::TcpStream(out_send_conn));
 
         tokio::spawn(async move {
-            proxy_conn(in_recv_read, out_send_write, compress, encrypt).await;
+            proxy_conn(in_recv_read, out_send_write, compress).await;
         });
 
         TestProxy {

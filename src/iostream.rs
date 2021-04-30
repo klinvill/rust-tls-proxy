@@ -2,7 +2,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
-use tokio_rustls::client::TlsStream;
+use tokio_rustls::TlsStream;
 
 /// Wrapper for asynchronous network IO streams
 pub enum IoStream {

@@ -9,7 +9,7 @@ use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
 use tokio::io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio_rustls::{rustls::ClientConfig, webpki::DNSNameRef, TlsConnector};
+use tokio_rustls::{rustls::ClientConfig, webpki::DNSNameRef, TlsConnector, TlsStream};
 
 pub const PROXY_REDIR_PORT: u16 = 8080;
 
@@ -63,7 +63,9 @@ pub async fn forward_proxy(
                         let string_dnsname = inet_addr.to_str();
                         let dnsname = DNSNameRef::try_from_ascii_str(&string_dnsname)?;
                         let connector = TlsConnector::from(Arc::clone(&tls_config_ref));
-                        IoStream::TlsStream(connector.connect(dnsname, to_tcp_conn).await?)
+                        IoStream::TlsStream(TlsStream::from(
+                            connector.connect(dnsname, to_tcp_conn).await?,
+                        ))
                     }
                 };
 

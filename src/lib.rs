@@ -1,5 +1,6 @@
 pub mod compression;
 pub mod forward_proxy;
+mod iostream;
 pub mod reverse_proxy;
 
 pub mod errors {

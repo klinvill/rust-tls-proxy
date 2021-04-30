@@ -34,7 +34,7 @@ async fn transparent_proxy() {
     });
 
     tokio::spawn(async move {
-        forward_proxy::forward_proxy(forward_proxy_listener, false, false)
+        forward_proxy::forward_proxy(forward_proxy_listener, false, false, None)
             .await
             .unwrap();
     });
@@ -89,7 +89,7 @@ async fn transparent_compression_proxy() {
     });
 
     tokio::spawn(async move {
-        forward_proxy::forward_proxy(forward_proxy_listener, true, false)
+        forward_proxy::forward_proxy(forward_proxy_listener, true, false, None)
             .await
             .unwrap();
     });
@@ -166,7 +166,7 @@ Duis efficitur, lacus a condimentum rhoncus, justo ex tristique neque, fermentum
     });
 
     tokio::spawn(async move {
-        forward_proxy::forward_proxy(forward_proxy_listener, true, false)
+        forward_proxy::forward_proxy(forward_proxy_listener, true, false, None)
             .await
             .unwrap();
     });

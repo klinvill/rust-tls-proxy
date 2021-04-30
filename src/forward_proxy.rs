@@ -2,10 +2,13 @@ use crate::compression::Compressor;
 use crate::errors::*;
 use crate::iostream::IoStream;
 use crate::reverse_proxy;
+use error_chain::bail;
 use nix::sys::socket;
-use std::io::Write;
+use std::fs::File;
+use std::io::{BufReader, Write};
 use std::net::SocketAddr;
 use std::os::unix::io::AsRawFd;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
@@ -30,7 +33,14 @@ pub async fn run_async(local_addr: SocketAddr, compress: bool, encrypt: bool) ->
         &true,
     )?;
 
-    forward_proxy(listen_socket, compress, encrypt).await
+    // TODO: fetch cert and key paths dynamically using arguments from user
+    forward_proxy(
+        listen_socket,
+        compress,
+        encrypt,
+        Some(Path::new("certs/cert.pem")),
+    )
+    .await
 }
 
 /// Note: this function allows for a custom TcpListener to be provided. Most users will either want
@@ -40,8 +50,23 @@ pub async fn forward_proxy(
     listen_socket: TcpListener,
     compress: bool,
     encrypt: bool,
+    root_certs_path: Option<&Path>,
 ) -> Result<()> {
-    let tls_config = ClientConfig::new();
+    let mut tls_config = ClientConfig::new();
+
+    if encrypt {
+        let mut root_file = BufReader::new(File::open(
+            root_certs_path.ok_or("Must provide a root cert path if encrypt is set.")?,
+        )?);
+        tls_config
+            .root_store
+            .add_pem_file(&mut root_file)
+            .map_err(|_| "Couldn't parse root cert file.")?;
+        if tls_config.root_store.is_empty() {
+            bail!("No root certs added to store.")
+        }
+    }
+
     let tls_config_ref = Arc::new(tls_config);
     loop {
         let (from_conn, from_addr) = listen_socket

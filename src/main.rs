@@ -30,14 +30,18 @@ use rust_tls_proxy::{forward_proxy, reverse_proxy};
 
 use clap::{App, AppSettings, Arg, SubCommand};
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 
 enum ServerSettings {
     Forward {
         addr: SocketAddr,
+        root_cert: PathBuf,
     },
     Reverse {
         addr: SocketAddr,
         server_ips: Vec<SocketAddr>,
+        cert_chain: PathBuf,
+        key: PathBuf,
     },
 }
 
@@ -80,6 +84,12 @@ fn run() -> Result<()> {
                         .long("port")
                         .help(FORWARD_PORT_HELP)
                         .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("root-cert")
+                        .long("root-cert")
+                        .default_value("certs/cert.pem")
+                        .help("Path to root certs to trust when using encryption."),
                 ),
             SubCommand::with_name("reverse")
                 .about("start in reverse proxy server mode")
@@ -95,6 +105,18 @@ fn run() -> Result<()> {
                         .help("server addresses in format ip:port")
                         .required(true)
                         .multiple(true),
+                )
+                .arg(
+                    Arg::with_name("cert-chain")
+                        .long("cert-chain")
+                        .default_value("certs/cert.pem")
+                        .help("Path to certificate chain to present when using encryption."),
+                )
+                .arg(
+                    Arg::with_name("key")
+                        .long("key")
+                        .default_value("certs/key.pem")
+                        .help("Path to private key to use for encryption."),
                 ),
         ])
         .get_matches_safe()
@@ -116,6 +138,9 @@ fn run() -> Result<()> {
 
                 SocketAddr::from((IpAddr::from([0, 0, 0, 0]), port))
             },
+            root_cert: [sub_m.value_of("root-cert").unwrap_or("certs/cert.pem")]
+                .iter()
+                .collect(),
         },
 
         ("reverse", Some(sub_m)) => ServerSettings::Reverse {
@@ -139,19 +164,37 @@ fn run() -> Result<()> {
                     .collect::<Result<_>>()?,
                 None => bail!("no server addreses"),
             },
+            cert_chain: [sub_m.value_of("cert-chain").unwrap_or("certs/cert.pem")]
+                .iter()
+                .collect(),
+            key: [sub_m.value_of("key").unwrap_or("certs/key.pem")]
+                .iter()
+                .collect(),
         },
 
         _ => bail!("unknown subcommand"),
     };
 
     return match server {
-        ServerSettings::Forward { addr } => forward_proxy::run(addr, compress, encrypt)
-            .chain_err(|| "error in forward_proxy::run()"),
-
-        ServerSettings::Reverse { addr, server_ips } => {
-            reverse_proxy::run(addr, server_ips, compress, encrypt)
-                .chain_err(|| "error in reverse_proxy::run()")
+        ServerSettings::Forward { addr, root_cert } => {
+            forward_proxy::run(addr, compress, encrypt, Some(&root_cert))
+                .chain_err(|| "error in forward_proxy::run()")
         }
+
+        ServerSettings::Reverse {
+            addr,
+            server_ips,
+            cert_chain,
+            key,
+        } => reverse_proxy::run(
+            addr,
+            server_ips,
+            compress,
+            encrypt,
+            Some(&cert_chain),
+            Some(&key),
+        )
+        .chain_err(|| "error in reverse_proxy::run()"),
     };
 }
 

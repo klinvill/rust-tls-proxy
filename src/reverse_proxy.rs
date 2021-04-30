@@ -20,17 +20,13 @@ pub fn run(
     server_ips: Vec<SocketAddr>,
     compress: bool,
     encrypt: bool,
+    cert_path: Option<&Path>,
+    key_path: Option<&Path>,
 ) -> Result<()> {
     let rt = tokio::runtime::Runtime::new().chain_err(|| "failed to create tokio runtime")?;
 
-    // TODO: fetch cert and key paths dynamically using arguments from user
     rt.block_on(run_async(
-        local_addr,
-        server_ips,
-        compress,
-        encrypt,
-        Some(Path::new("certs/cert.pem")),
-        Some(Path::new("certs/key.pem")),
+        local_addr, server_ips, compress, encrypt, cert_path, key_path,
     ))
 }
 

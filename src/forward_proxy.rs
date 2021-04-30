@@ -16,12 +16,22 @@ use tokio_rustls::{rustls::ClientConfig, webpki::DNSNameRef, TlsConnector, TlsSt
 
 pub const PROXY_REDIR_PORT: u16 = 8080;
 
-pub fn run(local_addr: SocketAddr, compress: bool, encrypt: bool) -> Result<()> {
+pub fn run(
+    local_addr: SocketAddr,
+    compress: bool,
+    encrypt: bool,
+    root_certs_path: Option<&Path>,
+) -> Result<()> {
     let rt = tokio::runtime::Runtime::new().chain_err(|| "failed to create tokio runtime")?;
-    rt.block_on(run_async(local_addr, compress, encrypt))
+    rt.block_on(run_async(local_addr, compress, encrypt, root_certs_path))
 }
 
-pub async fn run_async(local_addr: SocketAddr, compress: bool, encrypt: bool) -> Result<()> {
+pub async fn run_async(
+    local_addr: SocketAddr,
+    compress: bool,
+    encrypt: bool,
+    root_certs_path: Option<&Path>,
+) -> Result<()> {
     println!("opening listener socket on {}", local_addr);
     let listen_socket = TcpListener::bind(local_addr)
         .await
@@ -33,14 +43,7 @@ pub async fn run_async(local_addr: SocketAddr, compress: bool, encrypt: bool) ->
         &true,
     )?;
 
-    // TODO: fetch cert and key paths dynamically using arguments from user
-    forward_proxy(
-        listen_socket,
-        compress,
-        encrypt,
-        Some(Path::new("certs/cert.pem")),
-    )
-    .await
+    forward_proxy(listen_socket, compress, encrypt, root_certs_path).await
 }
 
 /// Note: this function allows for a custom TcpListener to be provided. Most users will either want

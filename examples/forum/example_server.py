@@ -127,8 +127,8 @@ class MyHandler(BaseHTTPRequestHandler):
 # https://stackoverflow.com/questions/19434947/python-respond-to-http-request
 # https://docs.python.org/3/library/http.server.html
 def startServer(ip, port, mode, cert):
-    if mode == "HTTPS":
-        raise Exception("HTTPS server is not supported yet")
+    #if mode == "HTTPS":
+    #    raise Exception("HTTPS server is not supported yet")
     print("Starting {} server on port {} with bound ip {}".format(mode, port, ip))
     server_class = HTTPServer
     httpd = server_class((ip, port), MyHandler)

@@ -7,13 +7,14 @@ from requests.exceptions import HTTPError
 ser_port = 9090
 ser_ip = "172.40.17.19" # server-router external-facing ip
 # if you want direct connection to server (no server proxy), try 172.40.17.10
+default_cert = "/usr/local/share/ca-certificates/forum.crt"
 
 class conn_info:
-    def __init__(self, ip, port, mode, secure):
+    def __init__(self, ip, port, mode, cert):
         self.ip = ip
         self.port = port
         self.mode = mode # http, https, etc.
-        self.secure = secure
+        self.cert = cert
 
 
 def get(conn):
@@ -22,7 +23,7 @@ def get(conn):
     user = input("Whose messages do you want to display? (Leave blank to display all messages)\n")
     PARAMS = {'user':user}
     try:
-        r = requests.get(url = URL, params = PARAMS, verify = conn.secure)
+        r = requests.get(url = URL, params = PARAMS, verify = conn.cert) # conn.cert can be False or filename of cert
     except Exception as e:
         print(e)
         raise Exception("Error connecting to server")
@@ -48,7 +49,7 @@ def post(conn):
     comment = input("Enter a comment to post: ")
     DATA = {'user': user, 'msg': comment}
     try:
-        r = requests.post(url = URL, data = DATA, verify = conn.secure)
+        r = requests.post(url = URL, data = DATA, verify = conn.cert)
     except Exception as e:
         print(e)
         raise Exception("Error connecting to server")
@@ -61,7 +62,8 @@ def post(conn):
 
 # https://www.geeksforgeeks.org/get-post-requests-using-python/
 def client(conn):
-    # so far it seems like all I need to do is change the http:// to https:// in the get and post methods. I'm not sure though.
+    print("Starting {} client on port {}".format(mode, port))
+
     try:
         while True:
             action = input("Do you want to get, post, or quit? ")
@@ -86,7 +88,7 @@ if __name__ == '__main__':
     ip = ser_ip
     port = ser_port
     mode = "HTTP"
-    secure = False
+    cert = False
     if len(sys.argv) == 2:
         ip = sys.argv[1] # legacy implementation
     elif len(sys.argv) == 1:
@@ -104,15 +106,18 @@ if __name__ == '__main__':
                 port = int(next_arg)
             elif (arg == "--mode"):
                 mode = next_arg.upper()
-        
-    if mode == "HTTP":
-        print("Starting HTTP client on port {}".format(port))
-    elif mode == "HTTPS":
-        raise Exception("HTTPS client is not supported yet")
-        print("Starting HTTPS client on port {}".format(port))
+    
+    if mode == "HTTPS":
+        #raise Exception("HTTPS client is not supported yet")
         tf = input("\nDo you want to require certificate verification? (T/F) ")
-        secure = not (tf.upper() == "F") # default to true for unrecognized input, otherwise set False
-    else:
+        cert = not (tf.upper() == "F") # default to true for unrecognized input, otherwise set False
+        if cert:
+            inp = input("Which certificate file do you want to use? (Leave blank for default)")
+            if inp == "":
+                cert = default_cert
+            else:
+                cert = inp
+    elif mode != "HTTP":
         raise Exception("Client mode {} is not supported.".format(mode))
-    conn = conn_info(ip, port, mode, secure)
+    conn = conn_info(ip, port, mode, cert) # will either be false or the name of a certificate file or chain
     client(conn)

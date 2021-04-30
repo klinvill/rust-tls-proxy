@@ -9,6 +9,7 @@ pub mod errors {
             NixError(nix::Error);
             IoError(std::io::Error);
             DnsNameError(tokio_rustls::webpki::InvalidDNSNameError);
+            TlsError(tokio_rustls::rustls::TLSError);
         }
     }
 }

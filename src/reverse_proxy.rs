@@ -1,11 +1,15 @@
 use crate::compression::{split_frames, Decompressor};
 use crate::errors::*;
 use crate::iostream::IoStream;
-use std::io::Write;
+use error_chain::bail;
+use std::fs::File;
+use std::io::{BufReader, Write};
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_rustls::rustls::internal::pemfile;
 use tokio_rustls::rustls::{NoClientAuth, ServerConfig};
 use tokio_rustls::{TlsAcceptor, TlsStream};
 
@@ -19,7 +23,15 @@ pub fn run(
 ) -> Result<()> {
     let rt = tokio::runtime::Runtime::new().chain_err(|| "failed to create tokio runtime")?;
 
-    rt.block_on(run_async(local_addr, server_ips, compress, encrypt))
+    // TODO: fetch cert and key paths dynamically using arguments from user
+    rt.block_on(run_async(
+        local_addr,
+        server_ips,
+        compress,
+        encrypt,
+        Some(Path::new("certs/cert.pem")),
+        Some(Path::new("certs/key.pem")),
+    ))
 }
 
 pub async fn run_async(
@@ -27,6 +39,8 @@ pub async fn run_async(
     server_ips: Vec<SocketAddr>,
     compress: bool,
     encrypt: bool,
+    cert_path: Option<&Path>,
+    key_path: Option<&Path>,
 ) -> Result<()> {
     let mut server_carousel = server_ips.iter().cycle();
 
@@ -36,7 +50,28 @@ pub async fn run_async(
         .await
         .chain_err(|| format!("error opening listener socket on {}", local_addr))?;
 
-    let tls_config = ServerConfig::new(NoClientAuth::new());
+    let mut tls_config = ServerConfig::new(NoClientAuth::new());
+    if encrypt {
+        let certs = pemfile::certs(&mut BufReader::new(File::open(
+            cert_path.ok_or("Must provide a cert path if encrypt is set")?,
+        )?))
+        .map_err(|_| "Could not load certs")?;
+        if certs.is_empty() {
+            bail!("Did not read any certs from file")
+        }
+
+        let mut keys = pemfile::rsa_private_keys(&mut BufReader::new(File::open(
+            key_path.ok_or("Must provide a key path if encrypt is set")?,
+        )?))
+        .map_err(|_| "Could not load key")?;
+        let key = match keys.len() {
+            1 => keys.remove(0),
+            0 => bail!("Did not read any keys from file."),
+            _ => bail!("Read multiple keys from file. Only one private key should be provided."),
+        };
+
+        tls_config.set_single_cert(certs, key)?;
+    }
     let tls_config_acceptor = TlsAcceptor::from(Arc::new(tls_config));
 
     loop {

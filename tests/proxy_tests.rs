@@ -21,9 +21,16 @@ async fn transparent_proxy() {
     let forward_proxy_listener = TcpListener::bind(forward_in_addr).await.unwrap();
 
     tokio::spawn(async move {
-        reverse_proxy::run_async(reverse_in_addr, vec![reverse_out_addr], false, false)
-            .await
-            .unwrap();
+        reverse_proxy::run_async(
+            reverse_in_addr,
+            vec![reverse_out_addr],
+            false,
+            false,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
     });
 
     tokio::spawn(async move {
@@ -69,9 +76,16 @@ async fn transparent_compression_proxy() {
     let forward_out_listener = TcpListener::bind(forward_out_addr).await.unwrap();
 
     tokio::spawn(async move {
-        reverse_proxy::run_async(reverse_in_addr, vec![reverse_out_addr], true, false)
-            .await
-            .unwrap();
+        reverse_proxy::run_async(
+            reverse_in_addr,
+            vec![reverse_out_addr],
+            true,
+            false,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
     });
 
     tokio::spawn(async move {
@@ -139,9 +153,16 @@ Duis efficitur, lacus a condimentum rhoncus, justo ex tristique neque, fermentum
     let forward_out_listener = TcpListener::bind(forward_out_addr).await.unwrap();
 
     tokio::spawn(async move {
-        reverse_proxy::run_async(reverse_in_addr, vec![reverse_out_addr], true, false)
-            .await
-            .unwrap();
+        reverse_proxy::run_async(
+            reverse_in_addr,
+            vec![reverse_out_addr],
+            true,
+            false,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
     });
 
     tokio::spawn(async move {

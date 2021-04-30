@@ -58,19 +58,19 @@ pub async fn forward_proxy(
 
                 let to_tcp_conn = TcpStream::connect(to_addr).await?;
                 let to_conn = match encrypt {
-                    false => IoStream::TcpStream(to_tcp_conn),
+                    false => IoStream::from(to_tcp_conn),
                     true => {
                         let string_dnsname = inet_addr.to_str();
                         let dnsname = DNSNameRef::try_from_ascii_str(&string_dnsname)?;
                         let connector = TlsConnector::from(Arc::clone(&tls_config_ref));
-                        IoStream::TlsStream(TlsStream::from(
+                        IoStream::from(TlsStream::from(
                             connector.connect(dnsname, to_tcp_conn).await?,
                         ))
                     }
                 };
 
                 println!("connection opened to {}", to_addr);
-                let (client_read, client_write) = split::<IoStream>(IoStream::TcpStream(from_conn));
+                let (client_read, client_write) = split::<IoStream>(IoStream::from(from_conn));
                 let (server_read, server_write) = split::<IoStream>(to_conn);
 
                 tokio::spawn(async move {
@@ -174,8 +174,8 @@ mod tests {
             .unwrap();
         let (out_recv_conn, _) = out_listener.accept().await.unwrap();
 
-        let (in_recv_read, _) = split::<IoStream>(IoStream::TcpStream(in_recv_conn));
-        let (_, out_send_write) = split::<IoStream>(IoStream::TcpStream(out_send_conn));
+        let (in_recv_read, _) = split::<IoStream>(IoStream::from(in_recv_conn));
+        let (_, out_send_write) = split::<IoStream>(IoStream::from(out_send_conn));
 
         tokio::spawn(async move {
             proxy_conn(in_recv_read, out_send_write, compress).await;

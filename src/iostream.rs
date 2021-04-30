@@ -49,3 +49,15 @@ impl AsyncWrite for IoStream {
         }
     }
 }
+
+impl From<TcpStream> for IoStream {
+    fn from(stream: TcpStream) -> Self {
+        IoStream::TcpStream(stream)
+    }
+}
+
+impl From<TlsStream<TcpStream>> for IoStream {
+    fn from(stream: TlsStream<TcpStream>) -> Self {
+        IoStream::TlsStream(stream)
+    }
+}

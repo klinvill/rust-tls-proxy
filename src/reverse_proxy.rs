@@ -47,8 +47,8 @@ pub async fn run_async(
         println!("connection received from {}", from_addr);
 
         let from_conn = match encrypt {
-            false => IoStream::TcpStream(from_tcp_conn),
-            true => IoStream::TlsStream(TlsStream::from(
+            false => IoStream::from(from_tcp_conn),
+            true => IoStream::from(TlsStream::from(
                 tls_config_acceptor.clone().accept(from_tcp_conn).await?,
             )),
         };
@@ -62,7 +62,7 @@ pub async fn run_async(
             println!("connection opened to {}", to_addr);
 
             let (client_read, client_write) = split::<IoStream>(from_conn);
-            let (server_read, server_write) = split::<IoStream>(IoStream::TcpStream(to_conn));
+            let (server_read, server_write) = split::<IoStream>(IoStream::from(to_conn));
 
             tokio::spawn(async move {
                 proxy_conn(client_read, server_write, compress).await;
@@ -159,8 +159,8 @@ mod tests {
             .unwrap();
         let (out_recv_conn, _) = out_listener.accept().await.unwrap();
 
-        let (in_recv_read, _) = split::<IoStream>(IoStream::TcpStream(in_recv_conn));
-        let (_, out_send_write) = split::<IoStream>(IoStream::TcpStream(out_send_conn));
+        let (in_recv_read, _) = split::<IoStream>(IoStream::from(in_recv_conn));
+        let (_, out_send_write) = split::<IoStream>(IoStream::from(out_send_conn));
 
         tokio::spawn(async move {
             proxy_conn(in_recv_read, out_send_write, compress).await;

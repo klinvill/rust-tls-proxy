@@ -1,4 +1,4 @@
-use crate::compression::Compressor;
+use crate::compression::{split_frames, Compressor, Decompressor, Direction};
 use crate::errors::*;
 use crate::iostream::IoStream;
 use crate::reverse_proxy;
@@ -103,10 +103,28 @@ pub async fn forward_proxy(
                 let (server_read, server_write) = split::<IoStream>(to_conn);
 
                 tokio::spawn(async move {
-                    proxy_conn(client_read, server_write, compress).await;
+                    proxy_conn(
+                        client_read,
+                        server_write,
+                        if compress {
+                            Some(Direction::Compress)
+                        } else {
+                            None
+                        },
+                    )
+                    .await;
                 });
                 tokio::spawn(async move {
-                    proxy_conn(server_read, client_write, compress).await;
+                    proxy_conn(
+                        server_read,
+                        client_write,
+                        if compress {
+                            Some(Direction::Decompress)
+                        } else {
+                            None
+                        },
+                    )
+                    .await;
                 });
             }
             _ => eprintln!("Failed to get destination address"),
@@ -117,7 +135,7 @@ pub async fn forward_proxy(
 async fn proxy_conn(
     mut read_conn: ReadHalf<IoStream>,
     mut write_conn: WriteHalf<IoStream>,
-    compress: bool,
+    compress_direction: Option<Direction>,
 ) {
     let mut buf = vec![0; 1024];
 
@@ -130,8 +148,20 @@ async fn proxy_conn(
             }
             Ok(n) => {
                 // TODO: cleanup match statements
-                let comp_buf = match compress {
-                    true => {
+                let comp_buf = match compress_direction {
+                    Some(Direction::Decompress) => {
+                        // TODO: add graceful error handling
+                        let decomp_frames = split_frames(&buf[..n]);
+                        decomp_frames
+                            .iter()
+                            .flat_map(|frame| {
+                                let mut decomp = Decompressor::new(Vec::new());
+                                decomp.write_all(frame).expect("Decompression error");
+                                decomp.finish().expect("Decompression error")
+                            })
+                            .collect()
+                    }
+                    Some(Direction::Compress) => {
                         let compressed_buf = Vec::new();
                         let mut comp = Compressor::new(compressed_buf);
                         match comp.write_all(&buf[..n]) {
@@ -149,12 +179,12 @@ async fn proxy_conn(
                             }
                         }
                     }
-                    _ => vec![],
+                    None => vec![],
                 };
 
-                let write_buffer = match compress {
-                    true => &comp_buf,
-                    false => &buf[..n],
+                let write_buffer = match compress_direction {
+                    Some(_) => &comp_buf,
+                    None => &buf[..n],
                 };
 
                 if let Err(_) = write_conn.write_all(write_buffer).await {
@@ -174,7 +204,7 @@ async fn proxy_conn(
 
 #[cfg(test)]
 mod tests {
-    use crate::compression::{split_frames, Compressor, Decompressor};
+    use crate::compression::{split_frames, Compressor, Decompressor, Direction};
     use crate::forward_proxy::{proxy_conn, IoStream};
     use std::io::Write;
     use tokio;
@@ -188,7 +218,7 @@ mod tests {
 
     /// Helper function to create proxied tcp connections. Returns a tuple of the connections to
     /// write to the proxy and read from the proxy respectively
-    async fn setup_proxy(compress: bool, encrypt: bool) -> TestProxy {
+    async fn setup_proxy(compress_direction: Option<Direction>) -> TestProxy {
         let in_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 
         let out_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -207,7 +237,7 @@ mod tests {
         let (_, out_send_write) = split::<IoStream>(IoStream::from(out_send_conn));
 
         tokio::spawn(async move {
-            proxy_conn(in_recv_read, out_send_write, compress).await;
+            proxy_conn(in_recv_read, out_send_write, compress_direction).await;
         });
 
         TestProxy {
@@ -221,7 +251,7 @@ mod tests {
         let message = "Hello world! This is message should be proxied.".as_bytes();
         let mut received = Vec::new();
 
-        let mut test_proxy = setup_proxy(false, false).await;
+        let mut test_proxy = setup_proxy(None).await;
 
         test_proxy.reader.write_all(&message).await.unwrap();
         test_proxy.reader.shutdown().await.unwrap();
@@ -235,7 +265,7 @@ mod tests {
         let message = "Hello world! This is message should be proxied and compressed.".as_bytes();
         let mut received = Vec::new();
 
-        let mut test_proxy = setup_proxy(true, false).await;
+        let mut test_proxy = setup_proxy(Some(Direction::Compress)).await;
 
         test_proxy.reader.write_all(&message).await.unwrap();
         test_proxy.reader.shutdown().await.unwrap();
@@ -260,7 +290,7 @@ Duis quis neque sit amet turpis ullamcorper pretium a et turpis. In ultrices ero
 Duis efficitur, lacus a condimentum rhoncus, justo ex tristique neque, fermentum imperdiet tortor ex a ante. Mauris a tortor nec sapien volutpat porttitor. Praesent purus erat, viverra sed rhoncus eget, sodales ac felis. Integer scelerisque leo gravida.".as_bytes();
         let mut received = Vec::new();
 
-        let mut test_proxy = setup_proxy(true, false).await;
+        let mut test_proxy = setup_proxy(Some(Direction::Compress)).await;
 
         test_proxy.reader.write_all(&message).await.unwrap();
         test_proxy.reader.shutdown().await.unwrap();

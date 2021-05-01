@@ -66,12 +66,22 @@ async fn transparent_compression_proxy() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     let message = "Hello world! This is message should be proxied.".as_bytes();
+    let response_message = "Hello! It was indeed proxied.".as_bytes();
+
     let mut ref_compressor = Compressor::new(Vec::new());
     ref_compressor.write_all(&message).unwrap();
     let compressed_message = ref_compressor.finish().unwrap();
 
+    let mut response_ref_compressor = Compressor::new(Vec::new());
+    response_ref_compressor
+        .write_all(&response_message)
+        .unwrap();
+    let compressed_response_message = response_ref_compressor.finish().unwrap();
+
     let mut forward_out_sent = Vec::new();
     let mut received = Vec::new();
+    let mut forward_received_response = Vec::new();
+    let mut client_received_response = Vec::new();
 
     let forward_in_addr: SocketAddr = "127.0.0.1:8123".parse().unwrap();
     let forward_out_addr: SocketAddr = "127.0.0.1:9443".parse().unwrap();
@@ -123,6 +133,26 @@ async fn transparent_compression_proxy() {
     out_recv_conn.read_to_end(&mut received).await.unwrap();
 
     assert_eq!(received, message);
+
+    // Now test the response to make sure it is compressed between the reverse and forward proxies
+    out_recv_conn.write_all(&response_message).await.unwrap();
+    out_recv_conn.shutdown().await.unwrap();
+    reverse_in_conn
+        .read_to_end(&mut forward_received_response)
+        .await
+        .unwrap();
+    assert_eq!(forward_received_response, compressed_response_message);
+
+    forward_out_conn
+        .write_all(&forward_received_response)
+        .await
+        .unwrap();
+    forward_out_conn.shutdown().await.unwrap();
+    in_send_conn
+        .read_to_end(&mut client_received_response)
+        .await
+        .unwrap();
+    assert_eq!(client_received_response, response_message);
 }
 
 // TODO: these tests are a bunch of hacked together lines. Should refactor out into smaller tests
@@ -147,8 +177,17 @@ Duis efficitur, lacus a condimentum rhoncus, justo ex tristique neque, fermentum
         ref_compressor.finish().unwrap()
     });
 
+    let response_message = "Lorem ipsum dolor sit amet consectetur adipiscing elit enim, laoreet cursus sociis suscipit quis condimentum lobortis lectus elementum, orci diam parturient magna leo porttitor sociosqu. Venenatis eu et nibh quis enim purus imperdiet lacus faucibus, dis velit augue cursus nec per aliquam ultrices scelerisque a, risus nulla viverra leo vulputate platea urna rutrum. Elementum ullamcorper aenean ridiculus enim magnis purus fames primis, habitasse iaculis interdum nec augue velit blandit semper, condimentum est aliquam duis dictum libero nunc. Lacus fusce elementum senectus nisl urna hac inceptos tempor litora nibh, nascetur lectus ridiculus a pulvinar id pretium dui consequat dignissim, non vehicula est vitae in luctus sagittis commodo rhoncus. Dui arcu faucibus nostra primis tempus maecenas facilisis pellentesque magna, placerat pretium velit ultrices pharetra cras ullamcorper facilisi, fringilla duis euismod mi class leo blandit laoreet. Bibendum semper vivamus suspendisse massa faucibus nam conubia tortor fusce morbi class, iaculis dictum nullam quisque sodales dignissim quis parturient penatibus laoreet. Eget aenean sem semper interdum potenti porta montes, enim leo nam nec mattis placerat parturient, donec massa vulputate cursus diam dui, ante aptent dignissim habitasse nisi gravida. Maecenas felis consequat in purus sociis mi vehicula lacus condimentum, neque auctor enim sapien at natoque elementum. Erat cursus primis tempor potenti nam netus ligula a lacinia, hendrerit nisi odio libero venenatis vivamus morbi parturient curae urna, condimentum facilisi maecenas quisque torquent lobortis aliquam in. Vitae diam rutrum ultrices ornare tempor gravida congue non mattis curabitur, fringilla mi fermentum feugiat parturient molestie class habitasse. Feugiat vulputate ultrices magna dui fringilla cras pellentesque semper dapibus gravida fusce ridiculus cubilia rutrum, cum odio quisque magnis dictumst blandit aptent integer suscipit vestibulum mauris in. Feugiat sed tris.".as_bytes();
+    let compressed_response_messages = response_message.chunks(1024).map(|chunk| {
+        let mut ref_compressor = Compressor::new(Vec::new());
+        ref_compressor.write_all(chunk).unwrap();
+        ref_compressor.finish().unwrap()
+    });
+
     let mut forward_out_sent = Vec::new();
     let mut received = Vec::new();
+    let mut forward_received_response = Vec::new();
+    let mut client_received_response = Vec::new();
 
     let forward_in_addr: SocketAddr = "127.0.0.1:8123".parse().unwrap();
     let forward_out_addr: SocketAddr = "127.0.0.1:9443".parse().unwrap();
@@ -203,6 +242,29 @@ Duis efficitur, lacus a condimentum rhoncus, justo ex tristique neque, fermentum
     out_recv_conn.read_to_end(&mut received).await.unwrap();
 
     assert_eq!(received, message);
+
+    // Now test the response to make sure it is compressed between the reverse and forward proxies
+    out_recv_conn.write_all(&response_message).await.unwrap();
+    out_recv_conn.shutdown().await.unwrap();
+    reverse_in_conn
+        .read_to_end(&mut forward_received_response)
+        .await
+        .unwrap();
+    assert_eq!(
+        forward_received_response,
+        compressed_response_messages.flatten().collect::<Vec<u8>>()
+    );
+
+    forward_out_conn
+        .write_all(&forward_received_response)
+        .await
+        .unwrap();
+    forward_out_conn.shutdown().await.unwrap();
+    in_send_conn
+        .read_to_end(&mut client_received_response)
+        .await
+        .unwrap();
+    assert_eq!(client_received_response, response_message);
 }
 
 #[tokio::test]

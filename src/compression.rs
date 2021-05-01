@@ -9,3 +9,8 @@ pub type Decompressor<W> = clients::Decompressor<W>;
 pub fn split_frames(data: &[u8]) -> Vec<&[u8]> {
     clients::split_frames(data)
 }
+
+pub enum Direction {
+    Compress,
+    Decompress,
+}

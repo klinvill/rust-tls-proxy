@@ -456,3 +456,100 @@ Duis efficitur, lacus a condimentum rhoncus, justo ex tristique neque, fermentum
 
     assert_eq!(received, message);
 }
+
+#[tokio::test]
+async fn transparent_compression_and_encryption_proxy() {
+    // TODO: hack to make sure previous sockets are freed up
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    let message =
+        "Hello world! This is message should be proxied, compressed, and encrypted.".as_bytes();
+
+    let mut ref_compressor = Compressor::new(Vec::new());
+    ref_compressor.write_all(&message).unwrap();
+    let compressed_message = ref_compressor.finish().unwrap();
+
+    let mut forward_out_sent = Vec::new();
+    let mut received = Vec::new();
+
+    let forward_in_addr: SocketAddr = "127.0.0.1:8123".parse().unwrap();
+    let forward_out_addr: SocketAddr = "127.0.0.1:9443".parse().unwrap();
+    let reverse_in_addr: SocketAddr = "127.0.0.1:8124".parse().unwrap();
+    let reverse_out_addr: SocketAddr = "127.0.0.1:8125".parse().unwrap();
+
+    let out_listener = TcpListener::bind(reverse_out_addr).await.unwrap();
+    let forward_proxy_listener = TcpListener::bind(forward_in_addr).await.unwrap();
+    let forward_out_listener = TcpListener::bind(forward_out_addr).await.unwrap();
+
+    let ca_cert_path = Path::new("tests/certs/ca_cert.pem");
+    let cert_path = Path::new("tests/certs/cert.pem");
+    let key_path = Path::new("tests/certs/key.pem");
+
+    let certs = pemfile::certs(&mut BufReader::new(File::open(cert_path).unwrap())).unwrap();
+    let mut keys =
+        pemfile::pkcs8_private_keys(&mut BufReader::new(File::open(key_path).unwrap())).unwrap();
+    let key = keys.remove(0);
+
+    let mut server_tls_config = ServerConfig::new(NoClientAuth::new());
+    server_tls_config.set_single_cert(certs, key).unwrap();
+
+    let mut client_tls_config = ClientConfig::new();
+    client_tls_config
+        .root_store
+        .add_pem_file(&mut BufReader::new(File::open(ca_cert_path).unwrap()))
+        .unwrap();
+
+    tokio::spawn(async move {
+        reverse_proxy::run_async(
+            reverse_in_addr,
+            vec![reverse_out_addr],
+            true,
+            true,
+            Some(cert_path),
+            Some(key_path),
+        )
+        .await
+        .unwrap();
+    });
+
+    tokio::spawn(async move {
+        forward_proxy::forward_proxy(forward_proxy_listener, true, true, Some(ca_cert_path))
+            .await
+            .unwrap();
+    });
+
+    let mut in_send_conn = TcpStream::connect(forward_in_addr).await.unwrap();
+
+    let write_fut = in_send_conn.write_all(&message);
+
+    // Check output from forward proxy to make sure it's compressed
+    let (forward_out_tcp_conn, _) = forward_out_listener.accept().await.unwrap();
+    let mut forward_out_conn = TlsAcceptor::from(Arc::new(server_tls_config))
+        .accept(forward_out_tcp_conn)
+        .await
+        .unwrap();
+
+    write_fut.await.unwrap();
+    in_send_conn.shutdown().await.unwrap();
+    forward_out_conn
+        .read_to_end(&mut forward_out_sent)
+        .await
+        .unwrap();
+
+    assert_eq!(forward_out_sent, compressed_message);
+
+    let reverse_in_tcp_conn = TcpStream::connect(reverse_in_addr).await.unwrap();
+    let connector = TlsConnector::from(Arc::new(client_tls_config));
+    let dnsname = DNSNameRef::try_from_ascii_str("localhost").unwrap();
+    let mut reverse_in_conn = connector
+        .connect(dnsname, reverse_in_tcp_conn)
+        .await
+        .unwrap();
+
+    let (mut out_recv_conn, _) = out_listener.accept().await.unwrap();
+    reverse_in_conn.write_all(&forward_out_sent).await.unwrap();
+    reverse_in_conn.shutdown().await.unwrap();
+    out_recv_conn.read_to_end(&mut received).await.unwrap();
+
+    assert_eq!(received, message);
+}

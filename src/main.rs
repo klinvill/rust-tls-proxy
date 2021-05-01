@@ -88,7 +88,7 @@ fn run() -> Result<()> {
                 .arg(
                     Arg::with_name("root-cert")
                         .long("root-cert")
-                        .default_value("certs/cert.pem")
+                        .default_value("certs/ca_cert.pem")
                         .help("Path to root certs to trust when using encryption."),
                 ),
             SubCommand::with_name("reverse")
@@ -138,7 +138,7 @@ fn run() -> Result<()> {
 
                 SocketAddr::from((IpAddr::from([0, 0, 0, 0]), port))
             },
-            root_cert: [sub_m.value_of("root-cert").unwrap_or("certs/cert.pem")]
+            root_cert: [sub_m.value_of("root-cert").unwrap_or("certs/ca_cert.pem")]
                 .iter()
                 .collect(),
         },

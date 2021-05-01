@@ -56,7 +56,7 @@ pub async fn run_async(
             bail!("Did not read any certs from file")
         }
 
-        let mut keys = pemfile::rsa_private_keys(&mut BufReader::new(File::open(
+        let mut keys = pemfile::pkcs8_private_keys(&mut BufReader::new(File::open(
             key_path.ok_or("Must provide a key path if encrypt is set")?,
         )?))
         .map_err(|_| "Could not load key")?;

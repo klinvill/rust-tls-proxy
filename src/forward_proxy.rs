@@ -2,6 +2,7 @@ use crate::compression::Compressor;
 use crate::errors::*;
 use crate::iostream::IoStream;
 use crate::reverse_proxy;
+use dns_lookup::lookup_addr;
 use error_chain::bail;
 use nix::sys::socket;
 use std::fs::File;
@@ -88,7 +89,7 @@ pub async fn forward_proxy(
                 let to_conn = match encrypt {
                     false => IoStream::from(to_tcp_conn),
                     true => {
-                        let string_dnsname = inet_addr.to_str();
+                        let string_dnsname = lookup_addr(&inet_addr.ip().to_std())?;
                         let dnsname = DNSNameRef::try_from_ascii_str(&string_dnsname)?;
                         let connector = TlsConnector::from(Arc::clone(&tls_config_ref));
                         IoStream::from(TlsStream::from(

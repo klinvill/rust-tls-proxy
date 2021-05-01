@@ -113,7 +113,7 @@ pub async fn forward_proxy(
                             None
                         },
                     )
-                    .await;
+                    .await
                 });
                 tokio::spawn(async move {
                     proxy_conn(
@@ -125,7 +125,7 @@ pub async fn forward_proxy(
                             None
                         },
                     )
-                    .await;
+                    .await
                 });
             }
             _ => eprintln!("Failed to get destination address"),

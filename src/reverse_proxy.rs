@@ -106,7 +106,7 @@ pub async fn run_async(
                         None
                     },
                 )
-                .await;
+                .await
             });
             tokio::spawn(async move {
                 proxy_conn(
@@ -118,7 +118,7 @@ pub async fn run_async(
                         None
                     },
                 )
-                .await;
+                .await
             });
         } else {
             eprintln!("failed to connect to {}", to_addr);

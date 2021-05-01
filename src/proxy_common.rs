@@ -1,13 +1,13 @@
-use crate::compression::{split_frames, Compressor, Decompressor, Direction};
+use crate::compression::{compress, decompress, split_frames, Direction};
+use crate::errors::Result;
 use crate::iostream::IoStream;
-use std::io::Write;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 
 pub async fn proxy_conn(
     mut read_conn: ReadHalf<IoStream>,
     mut write_conn: WriteHalf<IoStream>,
     compress_direction: Option<Direction>,
-) {
+) -> Result<()> {
     let mut buf = vec![0; 1024];
 
     loop {
@@ -18,38 +18,15 @@ pub async fn proxy_conn(
                 break;
             }
             Ok(n) => {
-                // TODO: cleanup match statements
                 let comp_buf = match compress_direction {
-                    Some(Direction::Decompress) => {
-                        // TODO: add graceful error handling
-                        let decomp_frames = split_frames(&buf[..n]);
-                        decomp_frames
-                            .iter()
-                            .flat_map(|frame| {
-                                let mut decomp = Decompressor::new(Vec::new());
-                                decomp.write_all(frame).expect("Decompression error");
-                                decomp.finish().expect("Decompression error")
-                            })
-                            .collect()
-                    }
-                    Some(Direction::Compress) => {
-                        let compressed_buf = Vec::new();
-                        let mut comp = Compressor::new(compressed_buf);
-                        match comp.write_all(&buf[..n]) {
-                            Err(e) => {
-                                eprintln!("Compression error: {}", e.to_string());
-                                break;
-                            }
-                            _ => (),
-                        };
-                        match comp.finish() {
-                            Ok(comp_buf) => comp_buf,
-                            Err(e) => {
-                                eprintln!("Compression error: {}", e.to_string());
-                                break;
-                            }
-                        }
-                    }
+                    Some(Direction::Decompress) => split_frames(&buf[..n])
+                        .iter()
+                        .map(|frame| decompress(frame))
+                        .collect::<std::io::Result<Vec<Vec<u8>>>>()?
+                        .into_iter()
+                        .flatten()
+                        .collect(),
+                    Some(Direction::Compress) => compress(&buf[..n])?,
                     None => vec![],
                 };
 
@@ -71,14 +48,14 @@ pub async fn proxy_conn(
     }
 
     let _ = write_conn.shutdown().await;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::compression::{split_frames, Compressor, Decompressor, Direction};
+    use crate::compression::{compress, decompress, split_frames, Direction};
     use crate::iostream::IoStream;
     use crate::proxy_common::proxy_conn;
-    use std::io::Write;
     use tokio;
     use tokio::io::{split, AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
@@ -108,9 +85,9 @@ mod tests {
         let (in_recv_read, _) = split::<IoStream>(IoStream::from(in_recv_conn));
         let (_, out_send_write) = split::<IoStream>(IoStream::from(out_send_conn));
 
-        tokio::spawn(async move {
-            proxy_conn(in_recv_read, out_send_write, compress_direction).await;
-        });
+        tokio::spawn(
+            async move { proxy_conn(in_recv_read, out_send_write, compress_direction).await },
+        );
 
         TestProxy {
             reader: in_send_conn,
@@ -135,6 +112,8 @@ mod tests {
     #[tokio::test]
     async fn proxy_compressed_content() {
         let message = "Hello world! This is message should be proxied and compressed.".as_bytes();
+        let expected_message = compress(&message).unwrap();
+
         let mut received = Vec::new();
 
         let mut test_proxy = setup_proxy(Some(Direction::Compress)).await;
@@ -143,11 +122,7 @@ mod tests {
         test_proxy.reader.shutdown().await.unwrap();
         test_proxy.writer.read_to_end(&mut received).await.unwrap();
 
-        let expected_message = Vec::new();
-        let mut ref_compressor = Compressor::new(expected_message);
-        ref_compressor.write_all(&message).unwrap();
-
-        assert_eq!(received, ref_compressor.finish().unwrap());
+        assert_eq!(received, expected_message);
     }
 
     #[tokio::test]
@@ -177,11 +152,7 @@ Duis efficitur, lacus a condimentum rhoncus, justo ex tristique neque, fermentum
 
         let decompressed_data: Vec<u8> = compression_frames
             .iter()
-            .flat_map(|frame| {
-                let mut ref_decompressor = Decompressor::new(Vec::new());
-                ref_decompressor.write_all(frame).unwrap();
-                ref_decompressor.finish().unwrap()
-            })
+            .flat_map(|frame| decompress(frame).unwrap())
             .collect();
 
         assert_eq!(message, decompressed_data);
@@ -190,10 +161,7 @@ Duis efficitur, lacus a condimentum rhoncus, justo ex tristique neque, fermentum
     #[tokio::test]
     async fn proxy_decompressed_content() {
         let message = "Hello world! This is message should be proxied and decompressed.".as_bytes();
-
-        let mut ref_compressor = Compressor::new(Vec::new());
-        ref_compressor.write_all(&message).unwrap();
-        let compressed_message = ref_compressor.finish().unwrap();
+        let compressed_message = compress(&message).unwrap();
 
         let mut received = Vec::new();
 
@@ -223,11 +191,7 @@ Duis efficitur, lacus a condimentum rhoncus, justo ex tristique neque, fermentum
 
         // Currently the forward proxy separates messages into chunks of at most 1024 bytes
         // TODO: make this maintainable by removing hardcoded values
-        let compressed_messages = message.chunks(1024).map(|chunk| {
-            let mut ref_compressor = Compressor::new(Vec::new());
-            ref_compressor.write_all(chunk).unwrap();
-            ref_compressor.finish().unwrap()
-        });
+        let compressed_messages = message.chunks(1024).map(|chunk| compress(chunk).unwrap());
 
         let mut received = Vec::new();
 

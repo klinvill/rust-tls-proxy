@@ -2,10 +2,10 @@ use tokio;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use rust_tls_proxy::compression::Compressor;
+use rust_tls_proxy::compression::compress;
 use rust_tls_proxy::{forward_proxy, reverse_proxy};
 use std::fs::File;
-use std::io::{BufReader, Write};
+use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -68,15 +68,8 @@ async fn transparent_compression_proxy() {
     let message = "Hello world! This is message should be proxied.".as_bytes();
     let response_message = "Hello! It was indeed proxied.".as_bytes();
 
-    let mut ref_compressor = Compressor::new(Vec::new());
-    ref_compressor.write_all(&message).unwrap();
-    let compressed_message = ref_compressor.finish().unwrap();
-
-    let mut response_ref_compressor = Compressor::new(Vec::new());
-    response_ref_compressor
-        .write_all(&response_message)
-        .unwrap();
-    let compressed_response_message = response_ref_compressor.finish().unwrap();
+    let compressed_message = compress(&message).unwrap();
+    let compressed_response_message = compress(&response_message).unwrap();
 
     let mut forward_out_sent = Vec::new();
     let mut received = Vec::new();
@@ -171,18 +164,12 @@ Duis quis neque sit amet turpis ullamcorper pretium a et turpis. In ultrices ero
 Duis efficitur, lacus a condimentum rhoncus, justo ex tristique neque, fermentum imperdiet tortor ex a ante. Mauris a tortor nec sapien volutpat porttitor. Praesent purus erat, viverra sed rhoncus eget, sodales ac felis. Integer scelerisque leo gravida.".as_bytes();
     // Currently the forward proxy separates messages into chunks of at most 1024 bytes
     // TODO: make this maintainable by removing hardcoded values
-    let compressed_messages = message.chunks(1024).map(|chunk| {
-        let mut ref_compressor = Compressor::new(Vec::new());
-        ref_compressor.write_all(chunk).unwrap();
-        ref_compressor.finish().unwrap()
-    });
+    let compressed_messages = message.chunks(1024).map(|chunk| compress(chunk).unwrap());
 
     let response_message = "Lorem ipsum dolor sit amet consectetur adipiscing elit enim, laoreet cursus sociis suscipit quis condimentum lobortis lectus elementum, orci diam parturient magna leo porttitor sociosqu. Venenatis eu et nibh quis enim purus imperdiet lacus faucibus, dis velit augue cursus nec per aliquam ultrices scelerisque a, risus nulla viverra leo vulputate platea urna rutrum. Elementum ullamcorper aenean ridiculus enim magnis purus fames primis, habitasse iaculis interdum nec augue velit blandit semper, condimentum est aliquam duis dictum libero nunc. Lacus fusce elementum senectus nisl urna hac inceptos tempor litora nibh, nascetur lectus ridiculus a pulvinar id pretium dui consequat dignissim, non vehicula est vitae in luctus sagittis commodo rhoncus. Dui arcu faucibus nostra primis tempus maecenas facilisis pellentesque magna, placerat pretium velit ultrices pharetra cras ullamcorper facilisi, fringilla duis euismod mi class leo blandit laoreet. Bibendum semper vivamus suspendisse massa faucibus nam conubia tortor fusce morbi class, iaculis dictum nullam quisque sodales dignissim quis parturient penatibus laoreet. Eget aenean sem semper interdum potenti porta montes, enim leo nam nec mattis placerat parturient, donec massa vulputate cursus diam dui, ante aptent dignissim habitasse nisi gravida. Maecenas felis consequat in purus sociis mi vehicula lacus condimentum, neque auctor enim sapien at natoque elementum. Erat cursus primis tempor potenti nam netus ligula a lacinia, hendrerit nisi odio libero venenatis vivamus morbi parturient curae urna, condimentum facilisi maecenas quisque torquent lobortis aliquam in. Vitae diam rutrum ultrices ornare tempor gravida congue non mattis curabitur, fringilla mi fermentum feugiat parturient molestie class habitasse. Feugiat vulputate ultrices magna dui fringilla cras pellentesque semper dapibus gravida fusce ridiculus cubilia rutrum, cum odio quisque magnis dictumst blandit aptent integer suscipit vestibulum mauris in. Feugiat sed tris.".as_bytes();
-    let compressed_response_messages = response_message.chunks(1024).map(|chunk| {
-        let mut ref_compressor = Compressor::new(Vec::new());
-        ref_compressor.write_all(chunk).unwrap();
-        ref_compressor.finish().unwrap()
-    });
+    let compressed_response_messages = response_message
+        .chunks(1024)
+        .map(|chunk| compress(chunk).unwrap());
 
     let mut forward_out_sent = Vec::new();
     let mut received = Vec::new();
@@ -464,10 +451,7 @@ async fn transparent_compression_and_encryption_proxy() {
 
     let message =
         "Hello world! This is message should be proxied, compressed, and encrypted.".as_bytes();
-
-    let mut ref_compressor = Compressor::new(Vec::new());
-    ref_compressor.write_all(&message).unwrap();
-    let compressed_message = ref_compressor.finish().unwrap();
+    let compressed_message = compress(&message).unwrap();
 
     let mut forward_out_sent = Vec::new();
     let mut received = Vec::new();

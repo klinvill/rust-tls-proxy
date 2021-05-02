@@ -36,12 +36,16 @@ enum ServerSettings {
     Forward {
         addr: SocketAddr,
         root_cert: PathBuf,
+        compress: bool,
+        encrypt: bool,
     },
     Reverse {
         addr: SocketAddr,
         server_ips: Vec<SocketAddr>,
         cert_chain: PathBuf,
         key: PathBuf,
+        compress: bool,
+        encrypt: bool,
     },
 }
 
@@ -63,18 +67,6 @@ fn run() -> Result<()> {
     let m = App::new(APP_NAME)
         .about(ABOUT_STR)
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .arg(
-            Arg::with_name("compress")
-                .short("c")
-                .long("compress")
-                .help("enable compression"),
-        )
-        .arg(
-            Arg::with_name("encrypt")
-                .short("e")
-                .long("encrypt")
-                .help("enable encryption"),
-        )
         .subcommands(vec![
             SubCommand::with_name("forward")
                 .about("start in foward proxy server mode")
@@ -90,6 +82,18 @@ fn run() -> Result<()> {
                         .long("root-cert")
                         .default_value("certs/ca_cert.pem")
                         .help("Path to root certs to trust when using encryption."),
+                )
+                .arg(
+                    Arg::with_name("compress")
+                        .short("c")
+                        .long("compress")
+                        .help("enable compression"),
+                )
+                .arg(
+                    Arg::with_name("encrypt")
+                        .short("e")
+                        .long("encrypt")
+                        .help("enable encryption"),
                 ),
             SubCommand::with_name("reverse")
                 .about("start in reverse proxy server mode")
@@ -117,14 +121,22 @@ fn run() -> Result<()> {
                         .long("key")
                         .default_value("certs/key.pem")
                         .help("Path to private key to use for encryption."),
+                )
+                .arg(
+                    Arg::with_name("compress")
+                        .short("c")
+                        .long("compress")
+                        .help("enable compression"),
+                )
+                .arg(
+                    Arg::with_name("encrypt")
+                        .short("e")
+                        .long("encrypt")
+                        .help("enable encryption"),
                 ),
         ])
         .get_matches_safe()
         .chain_err(|| "error parsing arguments")?;
-
-    let compress = m.is_present("compress");
-
-    let encrypt = m.is_present("encrypt");
 
     let server = match m.subcommand() {
         ("forward", Some(sub_m)) => ServerSettings::Forward {
@@ -141,6 +153,8 @@ fn run() -> Result<()> {
             root_cert: [sub_m.value_of("root-cert").unwrap_or("certs/ca_cert.pem")]
                 .iter()
                 .collect(),
+            compress: sub_m.is_present("compress"),
+            encrypt: sub_m.is_present("encrypt"),
         },
 
         ("reverse", Some(sub_m)) => ServerSettings::Reverse {
@@ -170,20 +184,27 @@ fn run() -> Result<()> {
             key: [sub_m.value_of("key").unwrap_or("certs/key.pem")]
                 .iter()
                 .collect(),
+            compress: sub_m.is_present("compress"),
+            encrypt: sub_m.is_present("encrypt"),
         },
 
         _ => bail!("unknown subcommand"),
     };
 
     return match server {
-        ServerSettings::Forward { addr, root_cert } => {
-            forward_proxy::run(addr, compress, encrypt, Some(&root_cert))
-                .chain_err(|| "error in forward_proxy::run()")
-        }
+        ServerSettings::Forward {
+            addr,
+            compress,
+            encrypt,
+            root_cert,
+        } => forward_proxy::run(addr, compress, encrypt, Some(&root_cert))
+            .chain_err(|| "error in forward_proxy::run()"),
 
         ServerSettings::Reverse {
             addr,
             server_ips,
+            compress,
+            encrypt,
             cert_chain,
             key,
         } => reverse_proxy::run(

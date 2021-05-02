@@ -1,4 +1,4 @@
-use crate::compression::header::Header;
+use crate::compression::header::{Header, HEADER_MAGIC_VALUE};
 use crate::compression::scheme::Scheme;
 use flate2::write::{DeflateDecoder, DeflateEncoder};
 use flate2::Compression;
@@ -151,6 +151,33 @@ impl<W: Write> Write for Decompressor<DeflateDecoder<W>> {
     }
 }
 
+/// Given a buffer of bytes, returns a Vec of slices of each compressed frame in the buffer.
+///
+/// This method determines a new frame by searching for the compression headers' magic value.
+pub fn split_frames(data: &[u8]) -> Vec<&[u8]> {
+    let magic_bytes: [u8; 2] = HEADER_MAGIC_VALUE.to_be_bytes();
+    assert_eq!(
+        magic_bytes.len(),
+        2,
+        "Expected compression header magic value to be 2 bytes"
+    );
+
+    let mut indices: Vec<usize> = data
+        .windows(2)
+        .enumerate()
+        .filter_map(|(i, byte_pair)| {
+            if byte_pair == magic_bytes {
+                Some(i)
+            } else {
+                None
+            }
+        })
+        .collect();
+    // We assume that the last compression frame ends at the end of the buffer
+    indices.push(data.len());
+    indices.windows(2).map(|is| &data[is[0]..is[1]]).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::compression::clients::{Compressor, Decompressor};
@@ -226,7 +253,7 @@ mod tests {
         let decompressed_result = reference_dec.get_ref();
 
         assert!(result.len() > 0);
-        assert_eq!(decompressed_result, message);
+        assert_eq!(decompressed_result.as_slice(), message);
     }
 
     #[test]
@@ -287,6 +314,6 @@ mod tests {
         let result = writer.get_ref().get_ref();
 
         assert!(result.len() > 0);
-        assert_eq!(result, message);
+        assert_eq!(result.as_slice(), message);
     }
 }

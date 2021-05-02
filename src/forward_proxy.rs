@@ -1,17 +1,18 @@
-use crate::compression::Compressor;
+use crate::compression::Direction;
 use crate::errors::*;
 use crate::iostream::IoStream;
+use crate::proxy_common::proxy_conn;
 use crate::reverse_proxy;
 use dns_lookup::lookup_addr;
 use error_chain::bail;
 use nix::sys::socket;
 use std::fs::File;
-use std::io::{BufReader, Write};
+use std::io::BufReader;
 use std::net::SocketAddr;
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::io::split;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{rustls::ClientConfig, webpki::DNSNameRef, TlsConnector, TlsStream};
 
@@ -103,185 +104,31 @@ pub async fn forward_proxy(
                 let (server_read, server_write) = split::<IoStream>(to_conn);
 
                 tokio::spawn(async move {
-                    proxy_conn(client_read, server_write, compress).await;
+                    proxy_conn(
+                        client_read,
+                        server_write,
+                        if compress {
+                            Some(Direction::Compress)
+                        } else {
+                            None
+                        },
+                    )
+                    .await;
                 });
                 tokio::spawn(async move {
-                    proxy_conn(server_read, client_write, compress).await;
+                    proxy_conn(
+                        server_read,
+                        client_write,
+                        if compress {
+                            Some(Direction::Decompress)
+                        } else {
+                            None
+                        },
+                    )
+                    .await;
                 });
             }
             _ => eprintln!("Failed to get destination address"),
         }
-    }
-}
-
-async fn proxy_conn(
-    mut read_conn: ReadHalf<IoStream>,
-    mut write_conn: WriteHalf<IoStream>,
-    compress: bool,
-) {
-    let mut buf = vec![0; 1024];
-
-    loop {
-        // proxy from the read connection to the write connection
-        match read_conn.read(&mut buf).await {
-            Ok(0) => {
-                println!("Read connection closed");
-                break;
-            }
-            Ok(n) => {
-                // TODO: cleanup match statements
-                let comp_buf = match compress {
-                    true => {
-                        let compressed_buf = Vec::new();
-                        let mut comp = Compressor::new(compressed_buf);
-                        match comp.write_all(&buf[..n]) {
-                            Err(e) => {
-                                eprintln!("Compression error: {}", e.to_string());
-                                break;
-                            }
-                            _ => (),
-                        };
-                        match comp.finish() {
-                            Ok(comp_buf) => comp_buf,
-                            Err(e) => {
-                                eprintln!("Compression error: {}", e.to_string());
-                                break;
-                            }
-                        }
-                    }
-                    _ => vec![],
-                };
-
-                let write_buffer = match compress {
-                    true => &comp_buf,
-                    false => &buf[..n],
-                };
-
-                if let Err(_) = write_conn.write_all(write_buffer).await {
-                    eprintln!("Error sending to write connection");
-                    break;
-                }
-            }
-            Err(_) => {
-                eprintln!("Socket error");
-                break;
-            }
-        }
-    }
-
-    let _ = write_conn.shutdown().await;
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::compression::{split_frames, Compressor, Decompressor};
-    use crate::forward_proxy::{proxy_conn, IoStream};
-    use std::io::Write;
-    use tokio;
-    use tokio::io::{split, AsyncReadExt, AsyncWriteExt};
-    use tokio::net::{TcpListener, TcpStream};
-
-    struct TestProxy {
-        reader: TcpStream,
-        writer: TcpStream,
-    }
-
-    /// Helper function to create proxied tcp connections. Returns a tuple of the connections to
-    /// write to the proxy and read from the proxy respectively
-    async fn setup_proxy(compress: bool, encrypt: bool) -> TestProxy {
-        let in_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-
-        let out_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-
-        let in_send_conn = TcpStream::connect(in_listener.local_addr().unwrap())
-            .await
-            .unwrap();
-        let (in_recv_conn, _) = in_listener.accept().await.unwrap();
-
-        let out_send_conn = TcpStream::connect(out_listener.local_addr().unwrap())
-            .await
-            .unwrap();
-        let (out_recv_conn, _) = out_listener.accept().await.unwrap();
-
-        let (in_recv_read, _) = split::<IoStream>(IoStream::from(in_recv_conn));
-        let (_, out_send_write) = split::<IoStream>(IoStream::from(out_send_conn));
-
-        tokio::spawn(async move {
-            proxy_conn(in_recv_read, out_send_write, compress).await;
-        });
-
-        TestProxy {
-            reader: in_send_conn,
-            writer: out_recv_conn,
-        }
-    }
-
-    #[tokio::test]
-    async fn proxy_content() {
-        let message = "Hello world! This is message should be proxied.".as_bytes();
-        let mut received = Vec::new();
-
-        let mut test_proxy = setup_proxy(false, false).await;
-
-        test_proxy.reader.write_all(&message).await.unwrap();
-        test_proxy.reader.shutdown().await.unwrap();
-        test_proxy.writer.read_to_end(&mut received).await.unwrap();
-
-        assert_eq!(received, message);
-    }
-
-    #[tokio::test]
-    async fn proxy_compressed_content() {
-        let message = "Hello world! This is message should be proxied and compressed.".as_bytes();
-        let mut received = Vec::new();
-
-        let mut test_proxy = setup_proxy(true, false).await;
-
-        test_proxy.reader.write_all(&message).await.unwrap();
-        test_proxy.reader.shutdown().await.unwrap();
-        test_proxy.writer.read_to_end(&mut received).await.unwrap();
-
-        let expected_message = Vec::new();
-        let mut ref_compressor = Compressor::new(expected_message);
-        ref_compressor.write_all(&message).unwrap();
-
-        assert_eq!(received, ref_compressor.finish().unwrap());
-    }
-
-    #[tokio::test]
-    async fn proxy_large_compressed_content() {
-        // ~2kB message
-        let message = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nullam risus metus, vulputate sed erat non, maximus accumsan augue. Ut eu aliquet urna, sed mollis lectus. Vivamus eu egestas lectus. Donec commodo diam vehicula nisl iaculis, at scelerisque est efficitur. Pellentesque sed dolor arcu. Nullam semper quam risus, quis lobortis sapien mollis vitae. Fusce egestas ante nisl, ac bibendum mi faucibus ac. Phasellus eu libero orci. Cras dignissim in nibh quis eleifend. Duis mattis fermentum nulla ac aliquet. Cras et orci quis erat fermentum auctor et in mauris. Ut ornare, elit a blandit imperdiet, nibh sapien dapibus sapien, non faucibus diam arcu fermentum nunc. Proin feugiat pharetra lectus vitae semper. Fusce sit amet tortor mattis, hendrerit ex nec, iaculis risus.
-
-Nam est nibh, semper sit amet gravida eu, efficitur in tortor. Aenean vel leo vitae enim scelerisque porta at et nibh. Nulla malesuada vel ipsum placerat varius. Aliquam facilisis, dolor quis ultrices condimentum, nisl metus consequat purus, non vulputate odio odio at justo. Fusce rhoncus neque arcu, et venenatis lacus vestibulum at. Nullam tristique tincidunt nunc. Ut mollis sem non turpis accumsan, et volutpat quam suscipit. Cras metus libero, commodo vitae purus vulputate, scelerisque molestie mi. Etiam posuere orci id turpis suscipit egestas. Nunc id faucibus risus.
-
-Duis quis neque sit amet turpis ullamcorper pretium a et turpis. In ultrices eros sit amet odio venenatis varius. Vestibulum id sem iaculis dolor ornare egestas eu sit amet nunc. Integer elit lorem, pretium vestibulum euismod in, imperdiet porttitor nisl. In accumsan elit non rutrum euismod. Integer turpis sem, lobortis non laoreet id, mattis at metus. Sed hendrerit volutpat dui ut consectetur.
-
-Duis efficitur, lacus a condimentum rhoncus, justo ex tristique neque, fermentum imperdiet tortor ex a ante. Mauris a tortor nec sapien volutpat porttitor. Praesent purus erat, viverra sed rhoncus eget, sodales ac felis. Integer scelerisque leo gravida.".as_bytes();
-        let mut received = Vec::new();
-
-        let mut test_proxy = setup_proxy(true, false).await;
-
-        test_proxy.reader.write_all(&message).await.unwrap();
-        test_proxy.reader.shutdown().await.unwrap();
-        test_proxy.writer.read_to_end(&mut received).await.unwrap();
-
-        let compression_frames = split_frames(&received);
-        // The forward proxy should receive the data as 2 different messages, each will be
-        // compressed separately.
-        // TODO: should make this more maintainable by not hardcoding it to expect 2 chunks but
-        //  rather the number of chunks that should be produced
-        assert_eq!(compression_frames.len(), 2);
-
-        let decompressed_data: Vec<u8> = compression_frames
-            .iter()
-            .flat_map(|frame| {
-                let mut ref_decompressor = Decompressor::new(Vec::new());
-                ref_decompressor.write_all(frame).unwrap();
-                ref_decompressor.finish().unwrap()
-            })
-            .collect();
-
-        assert_eq!(message, decompressed_data);
     }
 }

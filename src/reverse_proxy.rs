@@ -1,9 +1,17 @@
 use crate::compression::{split_frames, Decompressor};
 use crate::errors::*;
-use std::io::Write;
+use crate::iostream::IoStream;
+use error_chain::bail;
+use std::fs::File;
+use std::io::{BufReader, Write};
 use std::net::SocketAddr;
+use std::path::Path;
+use std::sync::Arc;
 use tokio::io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_rustls::rustls::internal::pemfile;
+use tokio_rustls::rustls::{NoClientAuth, ServerConfig};
+use tokio_rustls::{TlsAcceptor, TlsStream};
 
 pub const HTTPS_PORT: u16 = 9443;
 
@@ -12,10 +20,14 @@ pub fn run(
     server_ips: Vec<SocketAddr>,
     compress: bool,
     encrypt: bool,
+    cert_path: Option<&Path>,
+    key_path: Option<&Path>,
 ) -> Result<()> {
     let rt = tokio::runtime::Runtime::new().chain_err(|| "failed to create tokio runtime")?;
 
-    rt.block_on(run_async(local_addr, server_ips, compress, encrypt))
+    rt.block_on(run_async(
+        local_addr, server_ips, compress, encrypt, cert_path, key_path,
+    ))
 }
 
 pub async fn run_async(
@@ -23,6 +35,8 @@ pub async fn run_async(
     server_ips: Vec<SocketAddr>,
     compress: bool,
     encrypt: bool,
+    cert_path: Option<&Path>,
+    key_path: Option<&Path>,
 ) -> Result<()> {
     let mut server_carousel = server_ips.iter().cycle();
 
@@ -32,12 +46,43 @@ pub async fn run_async(
         .await
         .chain_err(|| format!("error opening listener socket on {}", local_addr))?;
 
+    let mut tls_config = ServerConfig::new(NoClientAuth::new());
+    if encrypt {
+        let certs = pemfile::certs(&mut BufReader::new(File::open(
+            cert_path.ok_or("Must provide a cert path if encrypt is set")?,
+        )?))
+        .map_err(|_| "Could not load certs")?;
+        if certs.is_empty() {
+            bail!("Did not read any certs from file")
+        }
+
+        let mut keys = pemfile::pkcs8_private_keys(&mut BufReader::new(File::open(
+            key_path.ok_or("Must provide a key path if encrypt is set")?,
+        )?))
+        .map_err(|_| "Could not load key")?;
+        let key = match keys.len() {
+            1 => keys.remove(0),
+            0 => bail!("Did not read any keys from file."),
+            _ => bail!("Read multiple keys from file. Only one private key should be provided."),
+        };
+
+        tls_config.set_single_cert(certs, key)?;
+    }
+    let tls_config_acceptor = TlsAcceptor::from(Arc::new(tls_config));
+
     loop {
-        let (from_conn, from_addr) = listen_socket
+        let (from_tcp_conn, from_addr) = listen_socket
             .accept()
             .await
             .chain_err(|| format!("error accepting connection"))?;
         println!("connection received from {}", from_addr);
+
+        let from_conn = match encrypt {
+            false => IoStream::from(from_tcp_conn),
+            true => IoStream::from(TlsStream::from(
+                tls_config_acceptor.clone().accept(from_tcp_conn).await?,
+            )),
+        };
 
         let to_addr = server_carousel
             .next()
@@ -47,14 +92,14 @@ pub async fn run_async(
         if let Ok(to_conn) = TcpStream::connect(to_addr).await {
             println!("connection opened to {}", to_addr);
 
-            let (client_read, client_write) = split::<TcpStream>(from_conn);
-            let (server_read, server_write) = split::<TcpStream>(to_conn);
+            let (client_read, client_write) = split::<IoStream>(from_conn);
+            let (server_read, server_write) = split::<IoStream>(IoStream::from(to_conn));
 
             tokio::spawn(async move {
-                proxy_conn(client_read, server_write, compress, encrypt).await;
+                proxy_conn(client_read, server_write, compress).await;
             });
             tokio::spawn(async move {
-                proxy_conn(server_read, client_write, compress, encrypt).await;
+                proxy_conn(server_read, client_write, compress).await;
             });
         } else {
             eprintln!("failed to connect to {}", to_addr);
@@ -63,10 +108,9 @@ pub async fn run_async(
 }
 
 async fn proxy_conn(
-    mut read_conn: ReadHalf<TcpStream>,
-    mut write_conn: WriteHalf<TcpStream>,
+    mut read_conn: ReadHalf<IoStream>,
+    mut write_conn: WriteHalf<IoStream>,
     compress: bool,
-    _encrypt: bool,
 ) {
     let mut buf = vec![0; 1024];
 
@@ -117,6 +161,7 @@ async fn proxy_conn(
 #[cfg(test)]
 mod tests {
     use crate::compression::Compressor;
+    use crate::iostream::IoStream;
     use crate::reverse_proxy::proxy_conn;
     use std::io::Write;
     use tokio;
@@ -145,11 +190,11 @@ mod tests {
             .unwrap();
         let (out_recv_conn, _) = out_listener.accept().await.unwrap();
 
-        let (in_recv_read, _) = split::<TcpStream>(in_recv_conn);
-        let (_, out_send_write) = split::<TcpStream>(out_send_conn);
+        let (in_recv_read, _) = split::<IoStream>(IoStream::from(in_recv_conn));
+        let (_, out_send_write) = split::<IoStream>(IoStream::from(out_send_conn));
 
         tokio::spawn(async move {
-            proxy_conn(in_recv_read, out_send_write, compress, encrypt).await;
+            proxy_conn(in_recv_read, out_send_write, compress).await;
         });
 
         TestProxy {

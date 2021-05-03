@@ -1,10 +1,12 @@
 import socket
 import sys
 
-servport = 1234
-proxyport = 1111
+# using port numbers prepended with 9s to avoid calling sudo during test
+http_port = 9980
+https_port = 9443
+proxy_redir_port = 8080
 
-def server(port): 
+def server(port, proxy): 
     print('starting server on port {}'.format(port))
     address = ('', port)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -12,7 +14,8 @@ def server(port):
     # allow reuse of socket addresses for faster testing
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    sock.setsockopt(socket.SOL_IP, socket.IP_TRANSPARENT, 1)
+    if (proxy):
+        sock.setsockopt(socket.SOL_IP, socket.IP_TRANSPARENT, 1)
 
     sock.bind(address)
     sock.listen(1)
@@ -44,11 +47,13 @@ if __name__ == '__main__':
         sys.exit(1)
 
     if (sys.argv[1] == '--proxy'):
-        port = proxyport
+        port = proxy_redir_port
+        proxy = True
     elif (sys.argv[1] == '--server'):
-        port = servport
+        port = http_port
+        proxy = False
     else:
         print('unknown argument: {}'.format(sys.argv[1]))
         sys.exit(1)
 
-    server(port)
+    server(port, proxy)

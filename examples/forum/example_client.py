@@ -108,7 +108,6 @@ if __name__ == '__main__':
                 mode = next_arg.upper()
     
     if mode == "HTTPS":
-        #raise Exception("HTTPS client is not supported yet")
         tf = input("\nDo you want to require certificate verification? (T/F) ")
         cert = not (tf.upper() == "F") # default to true for unrecognized input, otherwise set False
         if cert:

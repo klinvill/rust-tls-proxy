@@ -112,7 +112,8 @@ if __name__ == '__main__':
         tf = input("\nDo you want to require certificate verification? (T/F) ")
         cert = not (tf.upper() == "F") # default to true for unrecognized input, otherwise set False
         if cert:
-            inp = input("Which certificate file do you want to use? (Leave blank for default)")
+            print("Default cert is", default_cert)
+            inp = input("Which certificate file do you want to use? (Leave blank for default)\n")
             if inp == "":
                 cert = default_cert
             else:

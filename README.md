@@ -33,3 +33,12 @@ The Rust code is as follows:
 1. io is asynchronous using tokio::io::poll_read / poll_write, which will not block the caller if the buffer is not ready. This is modified to only work with TcpStream and TlsStream.  
 2.  Forward proxy changes destination port to reverse_proxy::HTTPS_PORT (port 9443) (it seems like it might not always be doing this). It also uses a transparent socket (I'm not sure what that means). If using encryption, the forward proxy creates a TlsStream and must verify that the domain name it is connecting to matches the certificate. It does not seem to have error handling / chaining for a failed TLS connection. The forward proxy uses tokio::spawn to create two "async" (threads): one for forwarding from client to server, and one from forwarding responses from server to client.
 3. Reverse proxy: Listens on port 9443 by default. 
+
+#### Building the code:
+Run `cargo build` to build the binaries for development, and `cargo build --release` to build the optimized binaries for benchmarking and release. You can also run the tests using the `cargo test` command.
+
+#### Encryption requirements:
+Running the forward proxy with encryption requires a trusted ca cert be provided to validate received certs. Running the reverse proxy with encryption requires a signed cert and key.
+
+#### Compression requirements:
+The compression layer is a custom layer, therefore the compression messages won't be properly interpreted unless the receiver also accepts our custom compression scheme. As a result, we recommend only using compression when using both the forward and reverse proxies with compression enabled.
